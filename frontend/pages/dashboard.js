@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 
 export default function Dashboard() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
   const [tasks, setTasks] = useState([]);
   const [title, setTitle] = useState('');
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/tasks')
+    fetch(`${API_URL}/api/tasks`)
       .then(r => r.json())
       .then(setTasks);
   }, []);
 
   const addTask = async () => {
-    const res = await fetch('http://localhost:5000/api/tasks', {
+    const res = await fetch(`${API_URL}/api/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title })

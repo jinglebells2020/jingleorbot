@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 
 export default function Financial() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
   const [data, setData] = useState([]);
   const [revenue, setRevenue] = useState('');
   const [expenses, setExpenses] = useState('');
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/finance')
+    fetch(`${API_URL}/api/finance`)
       .then(r => r.json())
       .then(setData);
   }, []);
 
   const save = async () => {
-    const res = await fetch('http://localhost:5000/api/finance', {
+    const res = await fetch(`${API_URL}/api/finance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ revenue, expenses })

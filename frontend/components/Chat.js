@@ -1,17 +1,18 @@
 import { useState, useEffect } from 'react';
 
 export default function Chat() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/chat')
+    fetch(`${API_URL}/api/chat`)
       .then(r => r.json())
       .then(setMessages);
   }, []);
 
   const send = async () => {
-    const res = await fetch('http://localhost:5000/api/chat', {
+    const res = await fetch(`${API_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: input })
