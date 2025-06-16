@@ -22,7 +22,13 @@ In a separate terminal:
 
 ```
 cd frontend && npm install
-npm run dev
+ npm run dev
+```
+
+Create a `frontend/.env.local` file (or copy from `frontend/.env.local.example`) with:
+
+```
+NEXT_PUBLIC_API_URL=http://localhost:5000
 ```
 
 The frontend runs on `http://localhost:3000` and expects the backend at `http://localhost:5000`.

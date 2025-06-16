@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 
 export default function Resources() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
   const [resources, setResources] = useState([]);
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/resources')
+    fetch(`${API_URL}/api/resources`)
       .then(r => r.json())
       .then(setResources);
   }, []);
 
   const add = async () => {
-    const res = await fetch('http://localhost:5000/api/resources', {
+    const res = await fetch(`${API_URL}/api/resources`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, url })
