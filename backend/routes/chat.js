@@ -2,10 +2,6 @@ const router = require('express').Router();
 const OpenAI = require('openai');
 const ChatMessage = require('../models/ChatMessage');
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
 router.get('/', async (req, res) => {
   const messages = await ChatMessage.find();
   res.json(messages);
