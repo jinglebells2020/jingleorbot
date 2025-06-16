@@ -26,3 +26,7 @@ npm run dev
 ```
 
 The frontend runs on `http://localhost:3000` and expects the backend at `http://localhost:5000`.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
