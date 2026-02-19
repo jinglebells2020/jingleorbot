@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>SPBCN Spelling Bee</title>
 <link rel="icon" type="image/webp" href="angry.webp">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -42,6 +42,10 @@
   --mc-green-shadow: #2a5e1a;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { touch-action: manipulation; }
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select { font-size: 16px !important; }
+}
 html { font-size: 16px; image-rendering: pixelated; }
 body {
   font-family: var(--font);
@@ -593,6 +597,17 @@ h2 { font-size: .7rem; font-weight: 400; margin-bottom: 12px; }
   padding: 20px;
   width: 90%;
   max-width: 360px;
+  max-height: 85vh;
+  overflow-y: auto;
+  color: #333;
+}
+.algo-input {
+  width: 100%;
+  padding: 4px 6px;
+  font-family: var(--font);
+  font-size: .5rem;
+  background: #fff;
+  border: 2px solid #999;
   color: #333;
 }
 .modal h3 { margin-bottom: 12px; font-size: .6rem; color: #333; }
@@ -1156,25 +1171,21 @@ h2 { font-size: .7rem; font-weight: 400; margin-bottom: 12px; }
     <button class="dash-nav-btn" onclick="showView('sort')">
       <div class="nav-icon nav-icon-sort">&#9776;</div>Sort Words
     </button>
-    <button class="dash-nav-btn" onclick="openQuizSetup(2)">
-      <div class="nav-icon nav-icon-t2">&#9733;</div>Quiz Tier 2
+    <button class="dash-nav-btn" onclick="openQuizSetup()">
+      <div class="nav-icon nav-icon-t2">&#9733;</div>Quiz
     </button>
-    <button class="dash-nav-btn" onclick="openQuizSetup(3)">
-      <div class="nav-icon nav-icon-t3">&#9888;</div>Quiz Tier 3
+    <button class="dash-nav-btn" onclick="showView('mistakes')">
+      <div class="nav-icon nav-icon-review">&#128269;</div>Review
     </button>
     <button class="dash-nav-btn" onclick="showView('import')">
       <div class="nav-icon nav-icon-import">&#128228;</div>Import
     </button>
     <button class="dash-nav-btn" onclick="showView('review')">
-      <div class="nav-icon nav-icon-review">&#128269;</div>Review
+      <div class="nav-icon nav-icon-export">&#128209;</div>Wordlist
     </button>
     <button class="dash-nav-btn" onclick="showView('export')">
       <div class="nav-icon nav-icon-export">&#128190;</div>Export
     </button>
-  </div>
-
-  <div style="text-align:center;margin-top:8px;">
-    <button class="btn btn-sm btn-gray" onclick="resetAll()">Reset All Data</button>
   </div>
 </section>
 
@@ -1349,11 +1360,32 @@ h2 { font-size: .7rem; font-weight: 400; margin-bottom: 12px; }
   </div>
 </section>
 
-<!-- ============ REVIEW ============ -->
+<!-- ============ REVIEW MISTAKES ============ -->
+<section id="v-mistakes" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="showView('dashboard')">&larr;</button>
+    <span style="font-weight:600;">Review</span>
+    <span></span>
+  </div>
+  <div id="mistakes-summary" class="card" style="margin-bottom:10px;"></div>
+  <div id="mistakes-empty" class="card" style="display:none;text-align:center;padding:30px 20px;">
+    <p style="font-size:1.2rem;margin-bottom:8px;">&#10003;</p>
+    <p>No words to review! All caught up.</p>
+  </div>
+  <input type="text" class="search-box" id="mistakes-search" placeholder="Search words..." oninput="renderMistakesList()">
+  <div class="card" style="padding:8px 12px;">
+    <div class="word-list" id="mistakes-list"></div>
+  </div>
+  <div id="mistakes-practice-wrap" style="margin-top:8px;display:none;">
+    <button class="btn btn-amber btn-block btn-lg" onclick="startMistakesQuiz()">Practice These Words</button>
+  </div>
+</section>
+
+<!-- ============ WORDLIST ============ -->
 <section id="v-review" class="view">
   <div class="top-bar">
     <button class="back-btn" onclick="showView('dashboard')">&larr;</button>
-    <span style="font-weight:600;">Review Tiers</span>
+    <span style="font-weight:600;">Wordlist</span>
     <span></span>
   </div>
   <div class="tabs" id="review-tabs">
@@ -1382,6 +1414,14 @@ h2 { font-size: .7rem; font-weight: 400; margin-bottom: 12px; }
       <button class="btn btn-red btn-block" onclick="exportTier(3)">Export Tier 3 (Unknown)</button>
     </div>
   </div>
+  <div class="card" style="margin-top:10px;">
+    <p style="font-size:.9rem;color:var(--text-light);margin-bottom:16px;">Export statistics and logs as CSV for analytics.</p>
+    <div class="export-btns">
+      <button class="btn btn-blue btn-block" onclick="exportQuizHistory()">Export Quiz History</button>
+      <button class="btn btn-blue btn-block" onclick="exportWordProgress()">Export Word Progress</button>
+      <button class="btn btn-blue btn-block" onclick="exportFullReport()">Export Full Report</button>
+    </div>
+  </div>
 </section>
 
 <!-- ============ IMPORT ============ -->
@@ -1404,15 +1444,58 @@ h2 { font-size: .7rem; font-weight: 400; margin-bottom: 12px; }
 <div class="modal-overlay" id="settings-modal">
   <div class="modal">
     <h3>Speech Settings</h3>
+    <label for="voice-select">Voice</label>
+    <select id="voice-select" class="tier-select" style="width:100%;padding:8px;margin-bottom:8px;font-size:.9rem;"></select>
+    <button class="btn btn-gray btn-block" style="margin-bottom:12px;font-size:.55rem;" onclick="previewVoice()">&#9654; Preview voice</button>
     <label for="rate-slider">Speech Rate</label>
     <input type="range" id="rate-slider" min="0.5" max="1.2" step="0.05" value="0.85" oninput="updateRateLabel()">
     <span class="rate-val" id="rate-val">0.85</span>
-    <label for="voice-select">Voice</label>
-    <select id="voice-select" class="tier-select" style="width:100%;padding:8px;margin-bottom:16px;font-size:.9rem;"></select>
+
+    <hr style="border:none;border-top:2px solid #999;margin:12px 0;">
+    <h3>Algorithm Settings</h3>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;">
+      <label for="algo-quiz-size" style="margin:0;align-self:center;">Quiz Size</label>
+      <input type="number" id="algo-quiz-size" min="5" max="50" value="15" class="algo-input">
+
+      <label for="algo-review-ratio" style="margin:0;align-self:center;">Review Ratio</label>
+      <input type="number" id="algo-review-ratio" min="0" max="1" step="0.1" value="0.4" class="algo-input">
+
+      <label for="algo-correct-delta" style="margin:0;align-self:center;">Correct Delta</label>
+      <input type="number" id="algo-correct-delta" min="-10" max="0" value="-3" class="algo-input">
+
+      <label for="algo-retry-delta" style="margin:0;align-self:center;">Retry Delta</label>
+      <input type="number" id="algo-retry-delta" min="-10" max="0" value="-2" class="algo-input">
+
+      <label for="algo-wrong-delta" style="margin:0;align-self:center;">Wrong Delta</label>
+      <input type="number" id="algo-wrong-delta" min="1" max="10" value="4" class="algo-input">
+
+      <label for="algo-rep-cap" style="margin:0;align-self:center;">Rep Cap</label>
+      <input type="number" id="algo-rep-cap" min="5" max="20" value="10" class="algo-input">
+
+      <label for="algo-first-correct" style="margin:0;align-self:center;">1st Correct Rep</label>
+      <input type="number" id="algo-first-correct" min="0" max="5" value="2" class="algo-input">
+
+      <label for="algo-first-wrong" style="margin:0;align-self:center;">1st Wrong Rep</label>
+      <input type="number" id="algo-first-wrong" min="1" max="10" value="3" class="algo-input">
+
+      <label for="algo-pending-interval" style="margin:0;align-self:center;">Review Interval</label>
+      <input type="number" id="algo-pending-interval" min="1" max="10" value="3" class="algo-input">
+
+      <label for="algo-pending-max" style="margin:0;align-self:center;">Max Review</label>
+      <input type="number" id="algo-pending-max" min="5" max="30" value="15" class="algo-input">
+
+      <label for="algo-time-decay" style="margin:0;align-self:center;">Time Decay</label>
+      <input type="number" id="algo-time-decay" min="0.5" max="5" step="0.1" value="1.5" class="algo-input">
+    </div>
+    <button class="btn btn-sm btn-gray btn-block" style="margin-top:8px;font-size:.45rem;" onclick="restoreAlgoDefaults()">Restore Algorithm Defaults</button>
+
+    <hr style="border:none;border-top:2px solid #999;margin:12px 0;">
     <div style="display:flex;gap:8px;">
       <button class="btn btn-green btn-block" onclick="saveSettingsModal()">Save</button>
       <button class="btn btn-gray btn-block" onclick="closeSettings()">Cancel</button>
     </div>
+    <button class="btn btn-red btn-block" style="margin-top:10px;" onclick="resetAll()">Reset All Data</button>
   </div>
 </div>
 
@@ -1623,16 +1706,44 @@ const T3_DEFAULT = [
 const WORDS = [...T1_DEFAULT, ...T2_DEFAULT, ...T3_DEFAULT];
 
 // ===== SPACED REPETITION CONSTANTS (v2) =====
-const CORRECT_DELTA = -3;
-const WRONG_DELTA = 4;
-const REP_CAP = 10;
-const FIRST_CORRECT_REP = 2;
-const FIRST_WRONG_REP = 3;
-const DEFAULT_QUIZ_SIZE = 15;
-const REVIEW_RATIO = 0.4;
-const PENDING_REVIEW_INTERVAL = 3;
-const PENDING_REVIEW_MAX = 15;
-const TIME_DECAY_FACTOR = 1.5;
+const ALGO_DEFAULTS = {
+  correctDelta: -3,
+  retryDelta: -2,
+  wrongDelta: 4,
+  repCap: 10,
+  firstCorrectRep: 2,
+  firstWrongRep: 3,
+  defaultQuizSize: 15,
+  reviewRatio: 0.4,
+  pendingReviewInterval: 3,
+  pendingReviewMax: 15,
+  timeDecayFactor: 1.5
+};
+let CORRECT_DELTA = ALGO_DEFAULTS.correctDelta;
+let RETRY_DELTA = ALGO_DEFAULTS.retryDelta;
+let WRONG_DELTA = ALGO_DEFAULTS.wrongDelta;
+let REP_CAP = ALGO_DEFAULTS.repCap;
+let FIRST_CORRECT_REP = ALGO_DEFAULTS.firstCorrectRep;
+let FIRST_WRONG_REP = ALGO_DEFAULTS.firstWrongRep;
+let DEFAULT_QUIZ_SIZE = ALGO_DEFAULTS.defaultQuizSize;
+let REVIEW_RATIO = ALGO_DEFAULTS.reviewRatio;
+let PENDING_REVIEW_INTERVAL = ALGO_DEFAULTS.pendingReviewInterval;
+let PENDING_REVIEW_MAX = ALGO_DEFAULTS.pendingReviewMax;
+let TIME_DECAY_FACTOR = ALGO_DEFAULTS.timeDecayFactor;
+
+function applyAlgoSettings(s) {
+  CORRECT_DELTA = s.correctDelta ?? ALGO_DEFAULTS.correctDelta;
+  RETRY_DELTA = s.retryDelta ?? ALGO_DEFAULTS.retryDelta;
+  WRONG_DELTA = s.wrongDelta ?? ALGO_DEFAULTS.wrongDelta;
+  REP_CAP = s.repCap ?? ALGO_DEFAULTS.repCap;
+  FIRST_CORRECT_REP = s.firstCorrectRep ?? ALGO_DEFAULTS.firstCorrectRep;
+  FIRST_WRONG_REP = s.firstWrongRep ?? ALGO_DEFAULTS.firstWrongRep;
+  DEFAULT_QUIZ_SIZE = s.defaultQuizSize ?? ALGO_DEFAULTS.defaultQuizSize;
+  REVIEW_RATIO = s.reviewRatio ?? ALGO_DEFAULTS.reviewRatio;
+  PENDING_REVIEW_INTERVAL = s.pendingReviewInterval ?? ALGO_DEFAULTS.pendingReviewInterval;
+  PENDING_REVIEW_MAX = s.pendingReviewMax ?? ALGO_DEFAULTS.pendingReviewMax;
+  TIME_DECAY_FACTOR = s.timeDecayFactor ?? ALGO_DEFAULTS.timeDecayFactor;
+}
 // Markov chain expected steps to absorption (p=0.7, -3/+4 system)
 const EXPECTED_STEPS = [0.0, 2.5, 2.7, 3.1, 4.9, 5.1, 5.7, 7.0, 7.1, 7.5, 8.4];
 
@@ -1782,6 +1893,7 @@ async function loginAs(username, name) {
     quizSessionCount = data.quizCount || 0;
     quizHistory = data.history || [];
     settings = { speechRate: 0.85, voiceURI: '', ...data.settings };
+    applyAlgoSettings(settings);
     hopperHighScore = data.hopperHighScore || 0;
   } catch (e) {
     console.error('Failed to load data:', e);
@@ -1841,6 +1953,7 @@ async function migrateLocalStorageToServer(username) {
       quizSessionCount = quizCount;
       quizHistory = history;
       settings = { speechRate: 0.85, voiceURI: '', ...sett };
+      applyAlgoSettings(settings);
       hopperHighScore = hopperHS;
 
       // Clean up old localStorage keys (keep dictCache - device-local)
@@ -1882,6 +1995,7 @@ function saveHopperHighScore() {
 }
 
 function resetAll() {
+  closeSettings();
   document.getElementById('reset-modal').classList.add('open');
 }
 function closeResetModal() {
@@ -1895,6 +2009,7 @@ async function confirmReset() {
     console.error('Reset error:', e);
   }
   settings = { speechRate: 0.85, voiceURI: '' };
+  applyAlgoSettings(settings);
   dictCache = {};
   quizSessionCount = 0;
   quizHistory = [];
@@ -2056,6 +2171,7 @@ function showView(id) {
   if (id === 'dashboard') renderDashboard();
   else if (id === 'sort') startSort();
   else if (id === 'review') { currentReviewTab = 1; renderReview(); }
+  else if (id === 'mistakes') renderMistakes();
 }
 
 // ===== DASHBOARD =====
@@ -2146,9 +2262,17 @@ function skipSort() {
 
 // ===== TTS =====
 let voicesLoaded = false;
+
 function getVoices() {
   return speechSynthesis.getVoices();
 }
+
+const PREFERRED_VOICES = [
+  'Samantha', 'Karen', 'Daniel', 'Moira', 'Tessa',
+  'Google US English', 'Google UK English Female', 'Google UK English Male',
+  'Microsoft Zira', 'Microsoft David', 'Microsoft Mark',
+  'Alex', 'Victoria', 'Fiona'
+];
 
 function getEnglishVoice() {
   const voices = getVoices();
@@ -2157,13 +2281,11 @@ function getEnglishVoice() {
     if (saved) return saved;
   }
   const enVoices = voices.filter(v => v.lang.startsWith('en'));
-  const preferred = enVoices.find(v => v.name.includes('Samantha'))
-    || enVoices.find(v => v.name.includes('Google') && v.name.includes('US'))
-    || enVoices.find(v => v.name.includes('Daniel'))
-    || enVoices.find(v => v.lang === 'en-US')
-    || enVoices[0]
-    || voices[0];
-  return preferred;
+  for (const pref of PREFERRED_VOICES) {
+    const match = enVoices.find(v => v.name.includes(pref));
+    if (match) return match;
+  }
+  return enVoices.find(v => v.lang === 'en-US') || enVoices[0] || voices[0];
 }
 
 function speak(text, rate) {
@@ -2245,9 +2367,8 @@ let quizState = 'playing';
 let quizAdvanceTimer = null;
 let quizMasteredThisSession = [];
 
-function openQuizSetup(preset) {
-  if (preset === 23) quizTiers = [2, 3];
-  else quizTiers = [preset];
+function openQuizSetup() {
+  quizTiers = [];
   quizCount = DEFAULT_QUIZ_SIZE;
   showView('quiz-setup');
   updateQSUI();
@@ -2255,8 +2376,8 @@ function openQuizSetup(preset) {
 
 function toggleQSTier(t) {
   const i = quizTiers.indexOf(t);
-  if (i >= 0 && quizTiers.length > 1) quizTiers.splice(i, 1);
-  else if (i < 0) quizTiers.push(t);
+  if (i >= 0) quizTiers.splice(i, 1);
+  else quizTiers.push(t);
   updateQSUI();
 }
 
@@ -2313,6 +2434,11 @@ function selectReviewWords(pool, count) {
 }
 
 function startQuiz() {
+  if (quizTiers.length === 0) {
+    alert('Select at least one tier.');
+    return;
+  }
+
   // Gather pools
   let newPool = [];
   quizTiers.forEach(t => {
@@ -2534,9 +2660,9 @@ function submitRetry() {
   const lastResult = quizResults[quizResults.length - 1];
 
   if (attempt.toLowerCase() === word.toLowerCase()) {
-    // Successful retry — undo most of the penalty
+    // Successful retry — partial undo (less than a real correct answer)
     const wd = getWD(word);
-    const newRep = Math.max(wd.rep + CORRECT_DELTA, 0);
+    const newRep = Math.max(wd.rep + RETRY_DELTA, 0);
     wordData[word] = { ...wd, rep: newRep };
     if (newRep === 0) {
       wordData[word].state = 'i_know';
@@ -2907,9 +3033,9 @@ function submitPendingRetry() {
   const lastResult = pendingReviewResults[pendingReviewResults.length - 1];
 
   if (attempt.toLowerCase() === word.toLowerCase()) {
-    // Successful retry — partial undo
+    // Successful retry — partial undo (less than a real correct answer)
     const wd = getWD(word);
-    const newRep = Math.max(wd.rep + CORRECT_DELTA, 0);
+    const newRep = Math.max(wd.rep + RETRY_DELTA, 0);
     wordData[word] = { ...wd, rep: newRep };
     if (newRep === 0) {
       wordData[word].state = 'i_know';
@@ -3030,6 +3156,89 @@ function moveTier(word, newTier) {
   renderReviewList();
 }
 
+// ===== REVIEW MISTAKES =====
+function getMistakeWords() {
+  const learning = [];
+  const pending = [];
+  Object.entries(wordData).forEach(([word, d]) => {
+    if (d.state === 'still_learning') learning.push(word);
+    else if (d.state === 'pending') pending.push(word);
+  });
+  learning.sort((a, b) => {
+    const ra = wordData[a].rep, rb = wordData[b].rep;
+    if (rb !== ra) return rb - ra;
+    return a.localeCompare(b, 'en', { sensitivity: 'base' });
+  });
+  pending.sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+  return { learning, pending };
+}
+
+function renderMistakes() {
+  const { learning, pending } = getMistakeWords();
+  const total = learning.length + pending.length;
+  const summary = document.getElementById('mistakes-summary');
+  const empty = document.getElementById('mistakes-empty');
+  const practiceWrap = document.getElementById('mistakes-practice-wrap');
+
+  summary.innerHTML =
+    `<div class="ring-stats" style="padding:12px;">
+      <div class="ring-stat"><div class="ring-dot" style="background:var(--orange)"></div><span><span class="rs-num">${learning.length}</span> Learning</span></div>
+      <div class="ring-stat"><div class="ring-dot" style="background:var(--blue)"></div><span><span class="rs-num">${pending.length}</span> Pending</span></div>
+    </div>`;
+
+  if (total === 0) {
+    empty.style.display = '';
+    practiceWrap.style.display = 'none';
+    document.getElementById('mistakes-search').style.display = 'none';
+    document.querySelector('#v-mistakes .card:last-of-type').style.display = 'none';
+  } else {
+    empty.style.display = 'none';
+    practiceWrap.style.display = '';
+    document.getElementById('mistakes-search').style.display = '';
+    document.querySelector('#v-mistakes .card:last-of-type').style.display = '';
+  }
+  renderMistakesList();
+}
+
+function renderMistakesList() {
+  const { learning, pending } = getMistakeWords();
+  const allWords = [...learning, ...pending];
+  const search = (document.getElementById('mistakes-search').value || '').toLowerCase();
+  const filtered = search ? allWords.filter(w => w.toLowerCase().includes(search)) : allWords;
+  const list = document.getElementById('mistakes-list');
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<p style="padding:20px;text-align:center;color:var(--text-light);">No words found</p>';
+    return;
+  }
+  list.innerHTML = filtered.map(w => {
+    const wd = getWD(w);
+    const badge = getRepBadgeHtml(wd.rep, wd.state);
+    return `<div class="word-row"><div><span class="word-text">${escHtml(w)}</span>${badge}</div></div>`;
+  }).join('');
+}
+
+function startMistakesQuiz() {
+  const { learning, pending } = getMistakeWords();
+  const pool = [...learning, ...pending];
+  if (pool.length === 0) return;
+
+  const N = Math.min(pool.length, DEFAULT_QUIZ_SIZE);
+  const selected = shuffleArray(pool).slice(0, N);
+
+  quizWords = selected.map(w => ({ word: w, isReview: true, isFirstEncounter: false }));
+  quizWords = shuffleArray(quizWords);
+  quizIndex = 0;
+  quizResults = [];
+  quizMasteredThisSession = [];
+  quizState = 'playing';
+  quizTiers = [2, 3];
+
+  showView('quiz');
+  startQuizMusic();
+  showQuizWord();
+}
+
 // ===== EXPORT =====
 function exportTier(tier) {
   const names = { 1: 'Easy', 2: 'Tricky', 3: 'Unknown' };
@@ -3040,6 +3249,94 @@ function exportTier(tier) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `spbcn_tier_${tier}_${names[tier].toLowerCase()}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function downloadCSV(filename, content) {
+  const blob = new Blob([content], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportQuizHistory() {
+  if (quizHistory.length === 0) { alert('No quiz history yet.'); return; }
+  const rows = [['Date', 'Tiers', 'Correct', 'Total', 'Score %', 'Mastered', 'Review Words', 'New Words']];
+  quizHistory.forEach(h => {
+    const pct = h.total > 0 ? Math.round(h.correct / h.total * 100) : 0;
+    rows.push([h.date, h.tier, h.correct, h.total, pct, h.mastered || 0, h.reviewWords || 0, h.newWords || 0]);
+  });
+  downloadCSV('spbcn_quiz_history.csv', rows.map(r => r.join(',')).join('\n') + '\n');
+}
+
+function exportWordProgress() {
+  const stateLabel = { unsorted: 'Unsorted', i_know: 'Mastered', tier2: 'Tricky (new)', tier3: 'Unknown (new)', still_learning: 'Learning', pending: 'Pending' };
+  const rows = [['Word', 'Tier', 'State', 'Rep Score', 'Encounters', 'Streak', 'Last Seen (session #)']];
+  Object.entries(wordData)
+    .sort((a, b) => a[0].localeCompare(b[0], 'en', { sensitivity: 'base' }))
+    .forEach(([word, d]) => {
+      rows.push([
+        '"' + word.replace(/"/g, '""') + '"',
+        d.tier,
+        stateLabel[d.state] || d.state,
+        d.rep,
+        d.encounters || 0,
+        d.streak || 0,
+        d.lastSeen || 0
+      ]);
+    });
+  downloadCSV('spbcn_word_progress.csv', rows.map(r => r.join(',')).join('\n') + '\n');
+}
+
+function exportFullReport() {
+  const sc = getStateCounts();
+  const total = Object.keys(wordData).length;
+  const lines = [];
+
+  lines.push('SPBCN SPELLING BEE — FULL REPORT');
+  lines.push('Generated: ' + new Date().toISOString());
+  lines.push('User: ' + (currentUser ? currentUser.name : 'unknown'));
+  lines.push('');
+
+  // Summary
+  lines.push('=== SUMMARY ===');
+  lines.push('Total words: ' + total);
+  lines.push('Mastered: ' + sc.i_know + ' (' + Math.round(sc.i_know / total * 100) + '%)');
+  lines.push('Learning: ' + sc.still_learning);
+  lines.push('Pending confirmation: ' + sc.pending);
+  lines.push('Tricky (new): ' + sc.tier2);
+  lines.push('Unknown (new): ' + sc.tier3);
+  lines.push('Unsorted: ' + sc.unsorted);
+  lines.push('Quiz sessions completed: ' + quizSessionCount);
+  lines.push('Hopper high score: ' + hopperHighScore);
+  lines.push('');
+
+  // Quiz history
+  lines.push('=== QUIZ HISTORY ===');
+  lines.push('Date,Tiers,Correct,Total,Score %,Mastered,Review,New');
+  quizHistory.forEach(h => {
+    const pct = h.total > 0 ? Math.round(h.correct / h.total * 100) : 0;
+    lines.push([h.date, h.tier, h.correct, h.total, pct + '%', h.mastered || 0, h.reviewWords || 0, h.newWords || 0].join(','));
+  });
+  lines.push('');
+
+  // Word progress
+  lines.push('=== WORD PROGRESS ===');
+  lines.push('Word,Tier,State,Rep,Encounters,Streak,LastSeen');
+  const stateLabel = { unsorted: 'Unsorted', i_know: 'Mastered', tier2: 'Tricky', tier3: 'Unknown', still_learning: 'Learning', pending: 'Pending' };
+  Object.entries(wordData)
+    .sort((a, b) => a[0].localeCompare(b[0], 'en', { sensitivity: 'base' }))
+    .forEach(([word, d]) => {
+      lines.push(['"' + word.replace(/"/g, '""') + '"', d.tier, stateLabel[d.state] || d.state, d.rep, d.encounters || 0, d.streak || 0, d.lastSeen || 0].join(','));
+    });
+
+  const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'spbcn_full_report.txt';
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -3114,10 +3411,37 @@ function openSettings() {
   document.getElementById('rate-slider').value = settings.speechRate;
   document.getElementById('rate-val').textContent = settings.speechRate.toFixed(2);
   populateVoiceSelect();
+  // Populate algo fields
+  document.getElementById('algo-quiz-size').value = DEFAULT_QUIZ_SIZE;
+  document.getElementById('algo-review-ratio').value = REVIEW_RATIO;
+  document.getElementById('algo-correct-delta').value = CORRECT_DELTA;
+  document.getElementById('algo-retry-delta').value = RETRY_DELTA;
+  document.getElementById('algo-wrong-delta').value = WRONG_DELTA;
+  document.getElementById('algo-rep-cap').value = REP_CAP;
+  document.getElementById('algo-first-correct').value = FIRST_CORRECT_REP;
+  document.getElementById('algo-first-wrong').value = FIRST_WRONG_REP;
+  document.getElementById('algo-pending-interval').value = PENDING_REVIEW_INTERVAL;
+  document.getElementById('algo-pending-max').value = PENDING_REVIEW_MAX;
+  document.getElementById('algo-time-decay').value = TIME_DECAY_FACTOR;
 }
 
 function closeSettings() {
   document.getElementById('settings-modal').classList.remove('open');
+}
+
+function previewVoice() {
+  const sel = document.getElementById('voice-select');
+  const uri = sel.value;
+  const voices = getVoices();
+  const voice = voices.find(v => v.voiceURI === uri);
+  const rate = parseFloat(document.getElementById('rate-slider').value);
+  if (speechSynthesis.speaking) speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance('Spelling bee practice. The word is: necessary.');
+  if (voice) u.voice = voice;
+  u.rate = rate;
+  u.pitch = 1;
+  u.lang = voice ? voice.lang : 'en-US';
+  speechSynthesis.speak(u);
 }
 
 function updateRateLabel() {
@@ -3128,9 +3452,22 @@ function populateVoiceSelect() {
   const sel = document.getElementById('voice-select');
   const voices = getVoices();
   const enVoices = voices.filter(v => v.lang.startsWith('en'));
-  sel.innerHTML = enVoices.map(v =>
-    `<option value="${v.voiceURI}"${v.voiceURI === settings.voiceURI ? ' selected' : ''}>${v.name} (${v.lang})</option>`
-  ).join('');
+  const scored = enVoices.map(v => {
+    let score = 0;
+    const n = v.name;
+    if (PREFERRED_VOICES.some(p => n.includes(p))) score += 10;
+    if (n.includes('Enhanced') || n.includes('Premium') || n.includes('Neural')) score += 5;
+    if (v.localService) score += 1;
+    if (v.lang === 'en-US') score += 2;
+    return { v, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+
+  const selectedURI = settings.voiceURI || (scored[0] ? scored[0].v.voiceURI : '');
+  sel.innerHTML = scored.map(({ v, score }) => {
+    const star = score >= 10 ? ' ★' : '';
+    return `<option value="${v.voiceURI}"${v.voiceURI === selectedURI ? ' selected' : ''}>${v.name} (${v.lang})${star}</option>`;
+  }).join('');
   if (enVoices.length === 0) {
     sel.innerHTML = '<option>Loading voices...</option>';
     setTimeout(populateVoiceSelect, 500);
@@ -3140,9 +3477,41 @@ function populateVoiceSelect() {
 function saveSettingsModal() {
   settings.speechRate = parseFloat(document.getElementById('rate-slider').value);
   settings.voiceURI = document.getElementById('voice-select').value;
+  // Save algo settings
+  settings.correctDelta = parseInt(document.getElementById('algo-correct-delta').value);
+  settings.retryDelta = parseInt(document.getElementById('algo-retry-delta').value);
+  settings.wrongDelta = parseInt(document.getElementById('algo-wrong-delta').value);
+  settings.repCap = parseInt(document.getElementById('algo-rep-cap').value);
+  settings.firstCorrectRep = parseInt(document.getElementById('algo-first-correct').value);
+  settings.firstWrongRep = parseInt(document.getElementById('algo-first-wrong').value);
+  settings.defaultQuizSize = parseInt(document.getElementById('algo-quiz-size').value);
+  settings.reviewRatio = parseFloat(document.getElementById('algo-review-ratio').value);
+  settings.pendingReviewInterval = parseInt(document.getElementById('algo-pending-interval').value);
+  settings.pendingReviewMax = parseInt(document.getElementById('algo-pending-max').value);
+  settings.timeDecayFactor = parseFloat(document.getElementById('algo-time-decay').value);
+  applyAlgoSettings(settings);
   saveSettings();
   closeSettings();
 }
+
+function restoreAlgoDefaults() {
+  document.getElementById('algo-quiz-size').value = ALGO_DEFAULTS.defaultQuizSize;
+  document.getElementById('algo-review-ratio').value = ALGO_DEFAULTS.reviewRatio;
+  document.getElementById('algo-correct-delta').value = ALGO_DEFAULTS.correctDelta;
+  document.getElementById('algo-retry-delta').value = ALGO_DEFAULTS.retryDelta;
+  document.getElementById('algo-wrong-delta').value = ALGO_DEFAULTS.wrongDelta;
+  document.getElementById('algo-rep-cap').value = ALGO_DEFAULTS.repCap;
+  document.getElementById('algo-first-correct').value = ALGO_DEFAULTS.firstCorrectRep;
+  document.getElementById('algo-first-wrong').value = ALGO_DEFAULTS.firstWrongRep;
+  document.getElementById('algo-pending-interval').value = ALGO_DEFAULTS.pendingReviewInterval;
+  document.getElementById('algo-pending-max').value = ALGO_DEFAULTS.pendingReviewMax;
+  document.getElementById('algo-time-decay').value = ALGO_DEFAULTS.timeDecayFactor;
+}
+
+// ===== PREVENT ZOOM ON MOBILE =====
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('gestureend', e => e.preventDefault());
 
 // ===== KEYBOARD =====
 document.addEventListener('keydown', (e) => {
@@ -3220,7 +3589,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // ===== INIT =====
-const VALID_VIEWS = ['dashboard', 'sort', 'review', 'export', 'import', 'quiz-setup', 'results', 'hopper'];
+const VALID_VIEWS = ['dashboard', 'sort', 'review', 'mistakes', 'export', 'import', 'quiz-setup', 'results', 'hopper'];
 
 async function init() {
   speechSynthesis.onvoiceschanged = () => { voicesLoaded = true; };
