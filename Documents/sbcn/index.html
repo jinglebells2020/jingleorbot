@@ -1,0 +1,3640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>SPBCN Spelling Bee</title>
+<link rel="icon" type="image/webp" href="angry.webp">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root {
+  --green: #3c8527;
+  --green-bg: #2a5e1a;
+  --amber: #c8a500;
+  --amber-bg: #4a3f00;
+  --red: #b83030;
+  --red-bg: #4a1010;
+  --blue: #3060b8;
+  --blue-bg: #1a2e4a;
+  --orange: #c86020;
+  --orange-bg: #4a2a10;
+  --gray: #6a6a6a;
+  --gray-bg: #3a3a3a;
+  --text: #e8e8e8;
+  --text-light: #a0a0a0;
+  --bg: #2c2c2c;
+  --card: #3a3a3a;
+  --shadow: 0 4px 0 #1a1a1a;
+  --shadow-lg: 0 6px 0 #1a1a1a;
+  --radius: 0px;
+  --radius-sm: 0px;
+  --font: 'Press Start 2P', monospace;
+  --transition: .1s step-end;
+  --mc-border-light: #5a5a5a;
+  --mc-border-dark: #1a1a1a;
+  --mc-panel: #c6c6c6;
+  --mc-panel-dark: #555555;
+  --mc-btn: #c6c6c6;
+  --mc-btn-highlight: #fafaff;
+  --mc-btn-shadow: #555555;
+  --mc-green-btn: #4a8c2a;
+  --mc-green-highlight: #6bc43a;
+  --mc-green-shadow: #2a5e1a;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; image-rendering: pixelated; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  -webkit-tap-highlight-color: transparent;
+  font-size: .65rem;
+  line-height: 1.8;
+}
+.view {
+  display: none;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+  animation: fadeIn .2s ease;
+  position: relative;
+  z-index: 1;
+}
+.view.active { display: block; }
+.view.active#v-dashboard { display: flex; }
+
+#v-dashboard {
+  min-height: 100dvh;
+  padding-top: 16px;
+  flex-direction: column;
+}
+#v-dashboard h1 { color: #ffe040; text-shadow: 2px 2px 0 #000; font-size: .85rem; }
+#v-dashboard .subtitle { color: #a0d0a0; text-shadow: 1px 1px 0 #000; font-size: .5rem; }
+#v-dashboard .gear-btn { color: #c0c0c0; text-shadow: 1px 1px 0 #000; font-size: 1rem; }
+#v-dashboard .logout-btn { color: #a0a0a0; font-size: .45rem; }
+#v-dashboard .logout-btn:hover { color: #ff6a6a; }
+
+.music-btn {
+  background: #4a4a4a;
+  border: 3px solid;
+  border-color: #6a6a6a #2a2a2a #2a2a2a #6a6a6a;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #e8e8e8;
+  font-size: .85rem;
+}
+.music-btn:hover { background: #5a5a5a; }
+.music-btn:active {
+  border-color: #2a2a2a #6a6a6a #6a6a6a #2a2a2a;
+}
+.music-btn.playing { color: #6aff4a; }
+@keyframes pulse-glow { 0%, 100% {} 50% {} }
+
+/* Pixel progress panel */
+.glass {
+  background: #4a4a4a;
+  border: 4px solid;
+  border-color: #6a6a6a #2a2a2a #2a2a2a #6a6a6a;
+}
+
+.ring-progress {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  margin-bottom: 10px;
+}
+.ring-wrap {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  flex-shrink: 0;
+}
+.ring-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-wrap circle { fill: none; stroke-width: 10; }
+.ring-bg { stroke: #333; }
+.ring-fill { stroke: #6aff4a; stroke-linecap: butt; }
+.ring-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: .85rem;
+  color: #ffe040;
+  line-height: 1;
+  text-shadow: 1px 1px 0 #000;
+}
+.ring-label small { font-size: .4rem; color: #a0a0a0; margin-top: 4px; text-shadow: none; }
+.ring-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.ring-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .5rem;
+  color: #e8e8e8;
+  text-shadow: 1px 1px 0 #000;
+}
+.ring-dot {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #1a1a1a;
+  flex-shrink: 0;
+}
+.ring-stat .rs-num { min-width: 24px; display: inline-block; }
+
+/* Dashboard nav - Minecraft inventory style */
+.dash-nav {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+  background: #4a4a4a;
+  border: 4px solid;
+  border-color: #6a6a6a #2a2a2a #2a2a2a #6a6a6a;
+  padding: 8px;
+}
+.dash-nav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 6px 10px;
+  border: 3px solid;
+  border-color: var(--mc-btn-highlight) var(--mc-btn-shadow) var(--mc-btn-shadow) var(--mc-btn-highlight);
+  font-family: var(--font);
+  font-size: .42rem;
+  color: #333;
+  cursor: pointer;
+  background: var(--mc-btn);
+  -webkit-user-select: none;
+  user-select: none;
+  min-height: 0;
+  line-height: 1.4;
+  text-shadow: 1px 1px 0 rgba(255,255,255,.3);
+}
+.dash-nav-btn:hover { background: #d5d5ff; }
+.dash-nav-btn:active {
+  border-color: var(--mc-btn-shadow) var(--mc-btn-highlight) var(--mc-btn-highlight) var(--mc-btn-shadow);
+}
+.dash-nav-btn .nav-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  border: 2px solid #1a1a1a;
+  background: #555;
+}
+.nav-icon-sort { background: #6a6a6a !important; }
+.nav-icon-t2 { background: #b89a00 !important; }
+.nav-icon-t3 { background: #b83030 !important; }
+.nav-icon-t23 { background: #c86020 !important; }
+.nav-icon-review { background: #3060b8 !important; }
+.nav-icon-export { background: #3c8527 !important; }
+
+#v-dashboard .btn-gray {
+  background: var(--mc-panel-dark);
+  border-color: #777 #333 #333 #777;
+  color: #ddd;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.4);
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+h1 { font-size: .85rem; font-weight: 400; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
+h2 { font-size: .7rem; font-weight: 400; margin-bottom: 12px; }
+.subtitle { color: var(--text-light); font-size: .55rem; margin-bottom: 16px; }
+
+/* Minecraft-style pixel panel */
+.card {
+  background: var(--mc-panel);
+  border: 3px solid var(--mc-border-dark);
+  border-top-color: var(--mc-btn-highlight);
+  border-left-color: var(--mc-btn-highlight);
+  padding: 16px;
+  margin-bottom: 12px;
+  color: #333;
+  box-shadow: inset 0 0 0 1px var(--mc-panel-dark);
+}
+
+/* Minecraft-style pixel buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 3px solid;
+  border-color: var(--mc-btn-highlight) var(--mc-btn-shadow) var(--mc-btn-shadow) var(--mc-btn-highlight);
+  font-family: var(--font);
+  font-size: .55rem;
+  padding: 10px 16px;
+  cursor: pointer;
+  min-height: 40px;
+  background: var(--mc-btn);
+  color: #333;
+  -webkit-user-select: none;
+  user-select: none;
+  text-shadow: 1px 1px 0 rgba(255,255,255,.4);
+  image-rendering: pixelated;
+  position: relative;
+}
+.btn:hover { background: #d5d5ff; }
+.btn:active {
+  border-color: var(--mc-btn-shadow) var(--mc-btn-highlight) var(--mc-btn-highlight) var(--mc-btn-shadow);
+  padding: 11px 15px 9px 17px;
+}
+.btn-green {
+  background: var(--mc-green-btn);
+  border-color: var(--mc-green-highlight) var(--mc-green-shadow) var(--mc-green-shadow) var(--mc-green-highlight);
+  color: #fff;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.4);
+}
+.btn-green:hover { background: #5aa03a; }
+.btn-amber {
+  background: #b89a00;
+  border-color: #e8ca30 #6a5a00 #6a5a00 #e8ca30;
+  color: #fff;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.4);
+}
+.btn-amber:hover { background: #c8aa10; }
+.btn-red {
+  background: var(--red);
+  border-color: #e06060 #701818 #701818 #e06060;
+  color: #fff;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.4);
+}
+.btn-red:hover { background: #c84040; }
+.btn-gray {
+  background: var(--mc-panel-dark);
+  border-color: #777 #333 #333 #777;
+  color: #ddd;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.4);
+}
+.btn-outline {
+  background: var(--mc-btn);
+  color: #333;
+  border: 3px solid;
+  border-color: var(--mc-btn-highlight) var(--mc-btn-shadow) var(--mc-btn-shadow) var(--mc-btn-highlight);
+}
+.btn-outline:hover { background: #d5d5ff; }
+.btn-sm { font-size: .5rem; padding: 6px 10px; min-height: 32px; }
+.btn-lg { font-size: .65rem; padding: 12px 24px; min-height: 44px; }
+.btn-block { display: flex; width: 100%; }
+
+/* Progress bar */
+.progress-bar {
+  display: flex;
+  width: 100%;
+  height: 20px;
+  overflow: hidden;
+  background: #333;
+  margin-bottom: 12px;
+  border: 2px solid;
+  border-color: #555 #1a1a1a #1a1a1a #555;
+}
+.progress-bar .seg {
+  height: 100%;
+  min-width: 0;
+}
+.seg-green { background: var(--green); }
+.seg-amber { background: var(--amber); }
+.seg-red { background: var(--red); }
+.seg-blue { background: var(--blue); }
+.seg-orange { background: var(--orange); }
+.seg-gray { background: #555; }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.stat-item {
+  text-align: center;
+  padding: 6px 2px;
+  font-size: .45rem;
+  border: 2px solid #1a1a1a;
+}
+.stat-item .num { font-size: .7rem; display: block; margin-bottom: 2px; }
+.stat-green { background: var(--green-bg); color: #6aff4a; }
+.stat-amber { background: var(--amber-bg); color: #ffe040; }
+.stat-red { background: var(--red-bg); color: #ff6a6a; }
+.stat-blue { background: var(--blue-bg); color: #6aa0ff; }
+.stat-orange { background: var(--orange-bg); color: #ffa060; }
+.stat-gray { background: var(--gray-bg); color: var(--text-light); }
+
+.nav-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.nav-grid .btn { font-size: .55rem; }
+
+/* Dashboard responsive */
+@media (max-width: 380px) {
+  .dash-nav { grid-template-columns: repeat(2, 1fr); }
+  .ring-progress { flex-direction: column; text-align: center; }
+  .ring-stats { justify-items: start; }
+}
+
+/* Header bar */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #4a4a4a;
+  border: 3px solid;
+  border-color: #6a6a6a #2a2a2a #2a2a2a #6a6a6a;
+}
+.back-btn {
+  background: none;
+  border: none;
+  font-size: .8rem;
+  cursor: pointer;
+  padding: 4px;
+  color: var(--text);
+  line-height: 1;
+  font-family: var(--font);
+}
+.counter { font-size: .5rem; color: var(--text-light); }
+
+/* Sort view */
+.sort-word {
+  text-align: center;
+  padding: 30px 16px;
+}
+.sort-word .word {
+  font-size: 1.2rem;
+  margin-bottom: 8px;
+  word-break: break-word;
+  color: #ffe040;
+  text-shadow: 2px 2px 0 #000;
+}
+.sort-word .hint {
+  font-size: .45rem;
+  color: var(--text-light);
+  margin-top: 12px;
+}
+.sort-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+/* Quiz */
+.quiz-setup-option {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.quiz-setup-option .btn { flex: 1; min-width: 60px; }
+.quiz-setup-option .btn.selected {
+  outline: 3px solid #fff;
+  outline-offset: -1px;
+  background: #555;
+  color: #fff;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.5);
+}
+.quiz-play-area { text-align: center; padding: 16px 0; }
+.play-btn {
+  width: 72px;
+  height: 72px;
+  background: var(--mc-green-btn);
+  border: 4px solid;
+  border-color: var(--mc-green-highlight) var(--mc-green-shadow) var(--mc-green-shadow) var(--mc-green-highlight);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.play-btn:active {
+  border-color: var(--mc-green-shadow) var(--mc-green-highlight) var(--mc-green-highlight) var(--mc-green-shadow);
+}
+.play-btn svg { width: 32px; height: 32px; fill: #fff; }
+
+.prompter-btns {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.prompter-btns .btn { font-size: .45rem; padding: 6px 10px; min-height: 30px; }
+
+.quiz-input-wrap {
+  max-width: 400px;
+  margin: 0 auto;
+}
+.quiz-input {
+  width: 100%;
+  font-size: .75rem;
+  font-family: var(--font);
+  padding: 12px 14px;
+  border: 3px solid;
+  border-color: #555 #1a1a1a #1a1a1a #555;
+  background: #2a2a2a;
+  color: #e8e8e8;
+  text-align: center;
+  outline: none;
+}
+.quiz-input:focus { border-color: var(--mc-green-highlight) var(--mc-green-shadow) var(--mc-green-shadow) var(--mc-green-highlight); }
+.quiz-submit-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  justify-content: center;
+}
+
+/* Feedback */
+.feedback {
+  text-align: center;
+  padding: 20px 0;
+  animation: fadeIn .2s step-end;
+}
+.feedback .icon {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+.diff-display {
+  font-size: .85rem;
+  letter-spacing: 2px;
+  margin: 12px 0;
+  line-height: 2;
+}
+.diff-display .correct { color: #6aff4a; }
+.diff-display .wrong { color: #ff6a6a; text-decoration: line-through; }
+.diff-display .missing { color: #6aff4a; opacity: .5; }
+.correct-word-label {
+  font-size: .5rem;
+  color: var(--text-light);
+  margin-bottom: 4px;
+}
+.your-attempt {
+  font-size: .55rem;
+  color: #ff6a6a;
+  margin-bottom: 12px;
+}
+
+/* Results */
+.result-score {
+  text-align: center;
+  padding: 16px;
+}
+.result-score .big { font-size: 1.5rem; color: #ffe040; text-shadow: 2px 2px 0 #000; }
+.result-score .pct { font-size: .7rem; color: var(--text-light); }
+.wrong-list {
+  list-style: none;
+  margin-top: 10px;
+}
+.wrong-list li {
+  padding: 8px 10px;
+  border-bottom: 2px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.wrong-list .attempt { color: #ff6a6a; text-decoration: line-through; font-size: .5rem; }
+.wrong-list .answer { color: #6aff4a; font-size: .55rem; }
+
+/* Review */
+.tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 3px solid #1a1a1a;
+}
+.tab-btn {
+  flex: 1;
+  padding: 8px 6px;
+  border: none;
+  background: var(--mc-btn);
+  font-family: var(--font);
+  font-size: .5rem;
+  cursor: pointer;
+  color: #333;
+}
+.tab-btn + .tab-btn { border-left: 2px solid #1a1a1a; }
+.tab-btn.active-tab { color: #fff; text-shadow: 1px 1px 0 rgba(0,0,0,.5); }
+.tab-btn.t1.active-tab { background: var(--green); }
+.tab-btn.t2.active-tab { background: #b89a00; }
+.tab-btn.t3.active-tab { background: var(--red); }
+
+.search-box {
+  width: 100%;
+  padding: 8px 12px;
+  border: 3px solid;
+  border-color: #555 #1a1a1a #1a1a1a #555;
+  background: #2a2a2a;
+  color: #e8e8e8;
+  font-family: var(--font);
+  font-size: .5rem;
+  margin-bottom: 10px;
+  outline: none;
+}
+.search-box:focus { border-color: #6a6a6a #333 #333 #6a6a6a; }
+
+.word-list {
+  max-height: 55vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.word-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px;
+  border-bottom: 2px solid #333;
+}
+.word-row .word-text { font-size: .5rem; }
+.tier-select {
+  font-family: var(--font);
+  font-size: .45rem;
+  padding: 3px 6px;
+  border: 2px solid #555;
+  background: #3a3a3a;
+  color: #e8e8e8;
+  cursor: pointer;
+}
+
+/* Settings modal */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--mc-panel);
+  border: 4px solid;
+  border-color: var(--mc-btn-highlight) var(--mc-border-dark) var(--mc-border-dark) var(--mc-btn-highlight);
+  padding: 20px;
+  width: 90%;
+  max-width: 360px;
+  color: #333;
+}
+.modal h3 { margin-bottom: 12px; font-size: .6rem; color: #333; }
+.modal label { display: block; font-size: .5rem; margin-bottom: 6px; color: #555; }
+.modal input[type="range"] { width: 100%; margin-bottom: 4px; }
+.modal .rate-val { font-size: .45rem; color: #555; text-align: center; display: block; margin-bottom: 12px; }
+
+/* Settings gear */
+.gear-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: var(--text-light);
+  padding: 4px;
+}
+
+/* Export */
+.export-btns { display: flex; flex-direction: column; gap: 10px; }
+
+/* Animations */
+@keyframes popIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.pop-in { animation: popIn .2s step-end; }
+
+/* Rep badges */
+.rep-badge {
+  display: inline-block;
+  font-size: .4rem;
+  padding: 3px 8px;
+  border: 2px solid #1a1a1a;
+  margin-top: 4px;
+}
+.rep-badge.rep-green { background: var(--green-bg); color: #6aff4a; }
+.rep-badge.rep-yellow { background: var(--amber-bg); color: #ffe040; }
+.rep-badge.rep-orange { background: var(--orange-bg); color: #ffa060; }
+.rep-badge.rep-red { background: var(--red-bg); color: #ff6a6a; }
+.rep-badge.rep-mastered { background: var(--green-bg); color: #6aff4a; }
+.rep-badge.rep-pending { background: var(--blue-bg); color: #6aa0ff; }
+
+/* Word type badge in quiz */
+.word-type-badge {
+  display: inline-block;
+  font-size: .4rem;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  padding: 2px 6px;
+  border: 2px solid #1a1a1a;
+  margin-left: 6px;
+}
+.word-type-badge.badge-new { background: var(--blue-bg); color: #6aa0ff; }
+.word-type-badge.badge-review { background: var(--orange-bg); color: #ffa060; }
+
+/* Mastered list in results */
+.mastered-list { list-style: none; margin-top: 8px; }
+.mastered-list li {
+  padding: 6px 10px;
+  border-bottom: 2px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: .5rem;
+}
+
+/* Pending review prompt */
+.pending-prompt {
+  background: var(--blue-bg);
+  border: 3px solid var(--blue);
+  padding: 14px 16px;
+  margin-top: 10px;
+  text-align: center;
+}
+.pending-prompt p { color: #6aa0ff; font-size: .5rem; margin-bottom: 10px; }
+.pending-prompt .btn { margin: 0 4px; }
+
+/* Drill view */
+.drill-area {
+  text-align: center;
+  padding: 16px 0;
+  min-height: 200px;
+}
+
+/* Hopper game */
+.hopper-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+}
+.hopper-wrap canvas {
+  display: block;
+  width: 100%;
+  border: 4px solid;
+  border-color: #555 #1a1a1a #1a1a1a #555;
+  background: #1e1e2e;
+}
+.hopper-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20,20,30,.9);
+  color: #fff;
+  text-align: center;
+  padding: 20px;
+}
+.hopper-overlay.hidden { display: none; }
+.hopper-overlay h2 { font-size: .8rem; margin-bottom: 8px; color: #ffe040; text-shadow: 2px 2px 0 #000; }
+.hopper-overlay .hscore { font-size: 1.4rem; margin: 8px 0; color: #ffe040; text-shadow: 2px 2px 0 #000; }
+.hopper-overlay .hbest { font-size: .5rem; opacity: .7; margin-bottom: 12px; }
+.hopper-hud {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  color: #fff;
+  font-size: .5rem;
+  pointer-events: none;
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* Beehive 3D scene — full-screen background */
+.bee-scene-wrap {
+  --bh-size: 50px;
+  --bh-rotateSpeed: 90s;
+  --bh-bee-size: calc(var(--bh-size)*1.25);
+  --bh-bee-timing: 10s;
+  --bh-wing-speed: 0.15s;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.bee-scene-wrap .bh-beehive { pointer-events: auto; }
+
+@keyframes bh-bee-wubble {
+  0%, 100% { animation-timing-function: ease-in-out; transform: translateY(0); }
+  50% { animation-timing-function: ease-in-out; transform: translateY(calc(var(--bh-size)*0.5)); }
+}
+@keyframes bh-bee-path {
+  25%, 50% {
+    transform: translateX(calc(var(--bh-size)*6)) translateY(calc(var(--bh-size)*1)) translateZ(calc(var(--bh-size)*4)) rotateY(360deg);
+  }
+}
+@keyframes bh-bee-rotation {
+  50% { transform: rotateY(90deg); }
+  75% { transform: rotateY(-270deg); }
+  100% { transform: rotateY(-180deg) translateX(calc(var(--bh-size)*-1)) translateZ(calc(var(--bh-size)*-1)); display: none; }
+}
+@keyframes bh-wing1 {
+  0%,100% { transform-origin: 0% 50%; transform: rotateY(0deg) rotateZ(0deg); }
+  50% { transform-origin: 0% 50%; transform: rotateY(-60deg) rotateZ(-15deg); }
+}
+@keyframes bh-wing2 {
+  0%,100% { transform-origin: 100% 50%; transform: rotateY(0deg) rotateZ(0deg); }
+  50% { transform-origin: 100% 50%; transform: rotateY(60deg) rotateZ(15deg); }
+}
+
+.bh-camera {
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%);
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  perspective: calc(var(--bh-size)*20);
+  perspective-origin: 50% calc(50% - calc(var(--bh-size)*7));
+}
+.bh-scene {
+  position: relative;
+  transform-style: preserve-3d;
+  animation: bh-rotateScene var(--bh-rotateSpeed) infinite linear;
+}
+@keyframes bh-rotateScene {
+  0% { transform: rotateY(0deg); }
+  25% { transform: rotateY(80deg); }
+  50% { transform: rotateY(0deg); }
+  75% { transform: rotateY(-80deg); }
+  100% { transform: rotateY(0deg); }
+}
+.bh-tree {
+  transform-style: preserve-3d;
+  position: absolute;
+  bottom: calc(var(--bh-size)*8);
+  transform: translateX(calc(var(--bh-size)*-2)) translateZ(calc(var(--bh-size)*-2));
+}
+.bh-tree .bh-leafy > * {
+  background-image: url(https://i.ibb.co/xMH4TXc/leaves.png);
+  background-size: var(--bh-size), calc(var(--bh-size)) calc(var(--bh-size));
+}
+.bh-leaves {
+  transform-style: preserve-3d;
+  transform: translateY(0);
+}
+.bh-crown-leaves { transform-style: preserve-3d; }
+.bh-x-leaves {
+  transform-style: preserve-3d;
+  transform: translateY(calc(var(--bh-size)*-4)) translateX(calc(var(--bh-size)*2)) translateZ(calc(var(--bh-size)*-1));
+}
+.bh-x-leaves .bh-front, .bh-x-leaves .bh-back, .bh-x-leaves .bh-left, .bh-x-leaves .bh-right {
+  box-shadow: inset 0 calc(var(--bh-size)*-0.2) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a;
+}
+.bh-x-leaves .bh-front, .bh-x-leaves .bh-back {
+  position: absolute; height: calc(var(--bh-size)*1); width: calc(var(--bh-size)*1);
+}
+.bh-x-leaves .bh-front { transform: rotateY(90deg) translateX(calc(var(--bh-size)*0.5)) translateZ(calc(var(--bh-size)*-0.5)); }
+.bh-x-leaves .bh-back { transform: rotateY(270deg) translateX(calc(var(--bh-size)*-0.5)) translateZ(calc(var(--bh-size)*-2.5)); }
+.bh-x-leaves .bh-left, .bh-x-leaves .bh-right, .bh-x-leaves .bh-top {
+  position: absolute; height: calc(var(--bh-size)*1); width: calc(var(--bh-size)*3);
+}
+.bh-x-leaves .bh-right { transform: translateZ(calc(var(--bh-size)*-1)); }
+.bh-x-leaves .bh-top { transform: rotateX(90deg) translateY(calc(var(--bh-size)*-0.5)) translateZ(calc(var(--bh-size)*0.5)); }
+
+.bh-y-leaves {
+  transform-style: preserve-3d;
+  transform: rotateY(90deg) translateY(calc(var(--bh-size)*-4)) translateZ(calc(var(--bh-size)*4));
+}
+.bh-y-leaves .bh-front, .bh-y-leaves .bh-back, .bh-y-leaves .bh-left, .bh-y-leaves .bh-right {
+  box-shadow: inset 0 calc(var(--bh-size)*-0.2) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a;
+}
+.bh-y-leaves .bh-front, .bh-y-leaves .bh-back {
+  position: absolute; height: calc(var(--bh-size)*1); width: calc(var(--bh-size)*1);
+}
+.bh-y-leaves .bh-front { transform: rotateY(90deg) translateX(calc(var(--bh-size)*0.5)) translateZ(calc(var(--bh-size)*-0.5)); }
+.bh-y-leaves .bh-back { transform: rotateY(270deg) translateX(calc(var(--bh-size)*-0.5)) translateZ(calc(var(--bh-size)*-2.5)); }
+.bh-y-leaves .bh-left, .bh-y-leaves .bh-right, .bh-y-leaves .bh-top {
+  position: absolute; height: calc(var(--bh-size)*1); width: calc(var(--bh-size)*3);
+}
+.bh-y-leaves .bh-right { transform: translateZ(calc(var(--bh-size)*-1)); }
+.bh-y-leaves .bh-top { transform: rotateX(90deg) translateY(calc(var(--bh-size)*-0.5)) translateZ(calc(var(--bh-size)*0.5)); }
+
+.bh-top-leaves {
+  transform-style: preserve-3d;
+  transform: translateX(calc(var(--bh-size)*2)) translateY(calc(var(--bh-size)*-3));
+}
+.bh-top-leaves .bh-top {
+  position: absolute; height: calc(var(--bh-size)*3); width: calc(var(--bh-size)*3);
+  transform: rotateX(90deg) translateZ(calc(var(--bh-size)*1.5)) translateY(calc(var(--bh-size)*-1.5));
+}
+.bh-top-leaves .bh-front, .bh-top-leaves .bh-back, .bh-top-leaves .bh-left, .bh-top-leaves .bh-right {
+  position: absolute; height: calc(var(--bh-size)); width: calc(var(--bh-size)*3);
+}
+.bh-top-leaves .bh-front { box-shadow: inset calc(var(--bh-size)*0.25) calc(var(--bh-size)*-0.2) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a; }
+.bh-top-leaves .bh-back { transform: translateZ(calc(var(--bh-size)*-3)); box-shadow: inset calc(var(--bh-size)*-1) calc(var(--bh-size)*-1) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a; }
+.bh-top-leaves .bh-right { transform: rotateY(90deg) translateZ(calc(var(--bh-size)*1.5)) translateX(calc(var(--bh-size)*1.5)); box-shadow: inset calc(var(--bh-size)*0.25) calc(var(--bh-size)*-0.2) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a; }
+.bh-top-leaves .bh-left { transform: rotateY(270deg) translateZ(calc(var(--bh-size)*1.5)) translateX(calc(var(--bh-size)*-1.5)); box-shadow: inset calc(var(--bh-size)*-1) calc(var(--bh-size)*-1) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a; }
+
+.bh-base-leaves {
+  transform-style: preserve-3d;
+  transform: translateX(calc(var(--bh-size)*1)) translateY(calc(var(--bh-size)*-2)) translateZ(calc(var(--bh-size)*1));
+}
+.bh-base-leaves .bh-front, .bh-base-leaves .bh-back, .bh-base-leaves .bh-left, .bh-base-leaves .bh-right {
+  position: absolute; height: calc(var(--bh-size)*2); width: calc(var(--bh-size)*5);
+}
+.bh-base-leaves .bh-top, .bh-base-leaves .bh-bottom {
+  position: absolute; height: calc(var(--bh-size)*5); width: calc(var(--bh-size)*5);
+}
+.bh-base-leaves .bh-top { transform: rotateX(90deg) translateZ(calc(var(--bh-size)*2.5)) translateY(calc(var(--bh-size)*-2.5)); box-shadow: inset calc(var(--bh-size)*1) calc(var(--bh-size)*-0.5) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a; }
+.bh-base-leaves .bh-bottom { transform: rotateX(90deg) translateZ(calc(var(--bh-size)*0.5)) translateY(calc(var(--bh-size)*-2.5)); }
+.bh-base-leaves .bh-front { box-shadow: inset 0 calc(var(--bh-size)*-0.5) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a; }
+.bh-base-leaves .bh-back { transform: translateZ(calc(var(--bh-size)*-5)); box-shadow: inset 0 calc(var(--bh-size)*-1.5) calc(var(--bh-size)*1) #000a; }
+.bh-base-leaves .bh-left { transform: rotateY(90deg) translateZ(calc(var(--bh-size)*2.5)) translateX(calc(var(--bh-size)*2.5)); box-shadow: inset 0 calc(var(--bh-size)*-0.5) calc(var(--bh-size)*1) calc(var(--bh-size)*-0.2) #000a; }
+.bh-base-leaves .bh-right { transform: rotateY(270deg) translateZ(calc(var(--bh-size)*2.5)) translateX(calc(var(--bh-size)*-2.5)); box-shadow: inset 0 calc(var(--bh-size)*-1.5) calc(var(--bh-size)*1) #000a; }
+
+.bh-log {
+  transform-style: preserve-3d;
+  transform: translateX(calc(var(--bh-size)*3)) translateZ(calc(var(--bh-size)*-2));
+}
+.bh-log .bh-side {
+  position: absolute; height: calc(var(--bh-size)*3); width: var(--bh-size);
+  background-image: url(https://i.ibb.co/wLNb24p/oak-side.webp);
+  background-size: 100%, calc(var(--bh-size)) calc(var(--bh-size));
+}
+.bh-log .bh-front { transform: translateZ(var(--bh-size)); box-shadow: inset calc(var(--bh-size)*0.15) calc(var(--bh-size)*-0.5) calc(var(--bh-size)*0.9) #000a; }
+.bh-log .bh-left { transform: rotateY(90deg) translateX(calc(var(--bh-size)*-0.5)) translateZ(calc(var(--bh-size)*0.5)); box-shadow: inset calc(var(--bh-size)*-0.35) calc(var(--bh-size)*-0.65) calc(var(--bh-size)*0.9) #000a; }
+.bh-log .bh-right { transform: rotateY(90deg) translateX(calc(var(--bh-size)*-0.5)) translateZ(calc(var(--bh-size)*-0.5)); box-shadow: inset calc(var(--bh-size)*-0.5) calc(var(--bh-size)*-0.5) calc(var(--bh-size)*0.5) calc(var(--bh-size)*0.3) #000a; }
+.bh-log .bh-back { box-shadow: inset calc(var(--bh-size)*1) calc(var(--bh-size)*1) calc(var(--bh-size)*1) #000a; }
+
+.bh-beehive div {
+  position: absolute; transform-style: preserve-3d;
+  height: var(--bh-size); width: var(--bh-size);
+  background-size: 100%, calc(var(--bh-size)) calc(var(--bh-size));
+}
+.bh-beehive {
+  transform-style: preserve-3d;
+  transform: translateX(calc(var(--bh-size)*3));
+  background: none; color: inherit; border: none; padding: 0; font: inherit; cursor: pointer; outline: inherit; position: absolute;
+}
+.bh-beehive .bh-side { background-image: url(https://i.ibb.co/7GRq3SL/side.webp); }
+.bh-beehive .bh-bottom-face { background-image: url(https://i.ibb.co/pfwbPYb/bottom.webp); transform: rotateX(90deg) translateY(calc(var(--bh-size)*-0.5)) translateZ(calc(var(--bh-size)*-0.5)); }
+.bh-beehive .bh-left { transform: rotateY(90deg) translateX(calc(var(--bh-size)*0.5)) translateZ(calc(var(--bh-size)*0.5)); }
+.bh-beehive .bh-right { transform: rotateY(270deg) translateX(calc(var(--bh-size)*-0.5)) translateZ(calc(var(--bh-size)*0.5)); }
+.bh-beehive-full { background-image: url(https://i.ibb.co/3zdKXsR/front-full.webp); }
+.bh-beehive-empty { background-image: url(https://i.ibb.co/zVKmjbh/front-empty.webp); }
+
+.bh-bee {
+  transform-style: preserve-3d;
+  transform: translateX(calc(var(--bh-size)*1)) translateY(calc(var(--bh-size)*2)) translateZ(calc(var(--bh-size)*-2));
+}
+.bh-wubble {
+  transform-style: preserve-3d;
+  animation: bh-bee-wubble 2s infinite ease-in-out;
+}
+.bh-bee-body { transform-style: preserve-3d; }
+.bh-bee-body div { position: absolute; background-size: var(--bh-size), calc(var(--bh-size)) calc(var(--bh-size)); }
+.bh-bee-rotate { transform-style: preserve-3d; }
+.bh-bee-rotate.bh-hide { display: none; }
+.bh-bee-rotate.bh-bee-rotation-anim { animation: bh-bee-rotation var(--bh-bee-timing) ease forwards 1; }
+.bh-bee-body.bh-bee-pathing { animation: bh-bee-path var(--bh-bee-timing) ease-in-out forwards 1; }
+
+.bh-w-pos1 {
+  transform-style: preserve-3d;
+  transform: rotateX(90deg) translateX(calc(var(--bh-size)*0.85)) translateY(calc(var(--bh-size)*0.2));
+}
+.bh-w-1 {
+  height: var(--bh-size); width: var(--bh-size);
+  animation: bh-wing1 var(--bh-wing-speed) infinite ease-in-out;
+  transform-style: preserve-3d;
+  background-image: url(https://i.ibb.co/TMmN2jL/wing1.png);
+  background-size: contain; background-repeat: no-repeat;
+}
+.bh-w-pos2 {
+  transform-style: preserve-3d;
+  transform: rotateX(90deg) translateX(calc(var(--bh-size)*-0.85)) translateY(calc(var(--bh-size)*0.2));
+}
+.bh-w-2 {
+  height: var(--bh-size); width: var(--bh-size);
+  animation: bh-wing2 var(--bh-wing-speed) infinite ease-in-out;
+  transform-style: preserve-3d;
+  background-image: url(https://i.ibb.co/dmM82PD/wing2.png);
+  background-size: contain; background-repeat: no-repeat;
+}
+.bh-bee-body .bh-front, .bh-bee-body .bh-back { height: var(--bh-size); width: var(--bh-size); }
+.bh-bee-body .bh-left, .bh-bee-body .bh-right { height: var(--bh-size); width: var(--bh-bee-size); background-size: var(--bh-bee-size) var(--bh-size); }
+.bh-bee-body .bh-top, .bh-bee-body .bh-bottom { height: var(--bh-bee-size); width: var(--bh-size); background-size: var(--bh-size) var(--bh-bee-size); }
+.bh-bee-body > .bh-bee-rotate > .bh-front { background-image: url(https://i.ibb.co/MspTjjc/face.png); transform: translateZ(var(--bh-bee-size)); }
+.bh-bee-body > .bh-bee-rotate > .bh-back { background-image: url(https://i.ibb.co/NV4HPpm/back.png); }
+.bh-bee-body > .bh-bee-rotate > .bh-left { background-image: url(https://i.ibb.co/7VF6x5B/left.png); transform: rotateY(90deg) translateZ(calc(var(--bh-bee-size)*0.285)) translateX(calc(var(--bh-bee-size)*-0.5)); }
+.bh-bee-body > .bh-bee-rotate > .bh-right { background-image: url(https://i.ibb.co/2WQPSy0/right.png); transform: rotateY(270deg) translateZ(calc(var(--bh-bee-size)*0.485)) translateX(calc(var(--bh-bee-size)*0.5)); }
+.bh-bee-body > .bh-bee-rotate > .bh-top { background-image: url(https://i.ibb.co/LzHzGQG/top.png); transform: rotateX(90deg) translateY(calc(var(--bh-bee-size)*0.5)) translateZ(calc(var(--bh-bee-size)*0.5)); }
+.bh-bee-body > .bh-bee-rotate > .bh-bottom { background-image: url(https://i.ibb.co/f4X7LqC/bottom.png); transform: rotateX(90deg) translateY(calc(var(--bh-bee-size)*0.5)) translateZ(calc(var(--bh-bee-size)*-0.3)); }
+
+.bh-flower {
+  transform-style: preserve-3d;
+  transform: translateX(calc(var(--bh-size)*5.675)) translateY(calc(var(--bh-size)*4)) translateZ(calc(var(--bh-size)*-1.675)) rotateY(45deg);
+}
+.bh-flower-body {
+  transform-style: preserve-3d;
+  position: absolute; height: var(--bh-size); width: var(--bh-size);
+  background-image: url(https://i.ibb.co/Wyk1Wfb/flower.webp);
+  background-size: var(--bh-size), calc(var(--bh-size)) calc(var(--bh-size));
+}
+.bh-f-b { transform-style: preserve-3d; transform: rotateY(90deg); }
+
+.bh-floor {
+  width: calc(var(--bh-size) * 10);
+  aspect-ratio: 1;
+  transform: rotateX(90deg);
+}
+.bh-floor-ext {
+  position: absolute;
+  bottom: -31.1rem;
+  left: -31.1rem;
+  width: calc(var(--bh-size) * 30);
+  aspect-ratio: 1;
+  background-image: radial-gradient(#0001, #000F 60%), url(https://i.ibb.co/k3WJBW0/grass.png);
+  background-size: 100%, calc(var(--bh-size)) calc(var(--bh-size));
+  transform: rotateX(90deg);
+}
+.bh-paused { }
+
+/* Responsive */
+@media (max-width: 480px) {
+  .sort-word .word { font-size: 1rem; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .nav-grid { grid-template-columns: 1fr; }
+  .quiz-input { font-size: .65rem; }
+  .diff-display { font-size: .7rem; }
+}
+
+/* Auth */
+.auth-card {
+  max-width: 360px;
+  margin: 60px auto 0;
+  background: var(--mc-panel);
+  border: 4px solid;
+  border-color: var(--mc-btn-highlight) var(--mc-border-dark) var(--mc-border-dark) var(--mc-btn-highlight);
+  padding: 24px 20px;
+  text-align: center;
+  color: #333;
+}
+.auth-card h1 { margin-bottom: 8px; color: #333; text-shadow: none; }
+.auth-card .subtitle { margin-bottom: 20px; color: #555; }
+.auth-input {
+  width: 100%;
+  font-size: .55rem;
+  font-family: var(--font);
+  padding: 10px 12px;
+  border: 3px solid;
+  border-color: #555 #1a1a1a #1a1a1a #555;
+  background: #fff;
+  color: #333;
+  outline: none;
+  margin-bottom: 10px;
+}
+.auth-input:focus { border-color: var(--mc-green-highlight) var(--mc-green-shadow) var(--mc-green-shadow) var(--mc-green-highlight); }
+.auth-error {
+  color: #ff3030;
+  font-size: .5rem;
+  margin-bottom: 10px;
+  display: none;
+}
+.auth-error.visible { display: block; }
+.auth-toggle {
+  margin-top: 14px;
+  font-size: .45rem;
+  color: #555;
+}
+.auth-toggle a {
+  color: var(--mc-green-btn);
+  cursor: pointer;
+  text-decoration: none;
+}
+.auth-panel { display: none; }
+.auth-panel.active { display: block; }
+.logout-btn {
+  background: none;
+  border: none;
+  font-family: var(--font);
+  font-size: .45rem;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.logout-btn:hover { color: #ff6a6a; }
+</style>
+</head>
+<body>
+
+<!-- ============ BEEHIVE BACKGROUND ============ -->
+<div class="bee-scene-wrap" id="bee-bg">
+  <div class="bh-camera">
+    <div class="bh-scene">
+      <div class="bh-tree">
+        <div class="bh-leaves">
+          <div class="bh-crown-leaves">
+            <div class="bh-x-leaves bh-leafy">
+              <div class="bh-top"></div><div class="bh-bottom"></div>
+              <div class="bh-front"></div><div class="bh-back"></div>
+              <div class="bh-left"></div><div class="bh-right"></div>
+            </div>
+            <div class="bh-y-leaves bh-leafy">
+              <div class="bh-top"></div><div class="bh-bottom"></div>
+              <div class="bh-front"></div><div class="bh-back"></div>
+              <div class="bh-left"></div><div class="bh-right"></div>
+            </div>
+          </div>
+          <div class="bh-top-leaves bh-leafy">
+            <div class="bh-top"></div><div class="bh-bottom"></div>
+            <div class="bh-front"></div><div class="bh-back"></div>
+            <div class="bh-left"></div><div class="bh-right"></div>
+          </div>
+          <div class="bh-base-leaves bh-leafy">
+            <div class="bh-top"></div><div class="bh-bottom"></div>
+            <div class="bh-front"></div><div class="bh-back"></div>
+            <div class="bh-left"></div><div class="bh-right"></div>
+          </div>
+        </div>
+        <div class="bh-log">
+          <div class="bh-side bh-front"></div>
+          <div class="bh-side bh-left"></div>
+          <div class="bh-side bh-right"></div>
+          <div class="bh-side bh-back"></div>
+        </div>
+        <button id="bh-bee-btn" class="bh-beehive">
+          <div id="bh-beehive-front" class="bh-front bh-beehive-full"></div>
+          <div class="bh-left bh-side"></div>
+          <div class="bh-right bh-side"></div>
+          <div class="bh-bottom-face"></div>
+        </button>
+      </div>
+      <div class="bh-bee">
+        <div class="bh-wubble">
+          <div class="bh-bee-body">
+            <div class="bh-bee-rotate bh-paused bh-hide">
+              <div class="bh-front"></div>
+              <div class="bh-back"></div>
+              <div class="bh-left"></div>
+              <div class="bh-right"></div>
+              <div class="bh-top"></div>
+              <div class="bh-bottom"></div>
+              <div class="bh-wing bh-w-pos1"><div class="bh-wing-mov bh-w-1"></div></div>
+              <div class="bh-wing bh-w-pos2"><div class="bh-wing-mov bh-w-2"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bh-flower">
+        <div class="bh-flower-body bh-f-a"></div>
+        <div class="bh-flower-body bh-f-b"></div>
+      </div>
+      <div class="bh-floor"></div>
+      <div class="bh-floor-ext"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ LOGIN ============ -->
+<section id="v-login" class="view">
+  <div class="auth-card">
+    <h1>SPBCN Spelling Bee</h1>
+    <p class="subtitle">Sign in to continue</p>
+
+    <div id="auth-login" class="auth-panel active">
+      <div id="login-error" class="auth-error"></div>
+      <input type="text" class="auth-input" id="login-username" placeholder="Username" autocomplete="username" autocapitalize="none">
+      <input type="password" class="auth-input" id="login-password" placeholder="Password" autocomplete="current-password">
+      <button class="btn btn-green btn-block" onclick="doLogin()">Sign In</button>
+      <p class="auth-toggle">No account? <a onclick="showAuthPanel('signup')">Sign up</a></p>
+    </div>
+
+    <div id="auth-signup" class="auth-panel">
+      <div id="signup-error" class="auth-error"></div>
+      <input type="text" class="auth-input" id="signup-name" placeholder="Display Name" autocomplete="name">
+      <input type="text" class="auth-input" id="signup-username" placeholder="Username" autocomplete="username" autocapitalize="none">
+      <input type="password" class="auth-input" id="signup-password" placeholder="Password" autocomplete="new-password">
+      <button class="btn btn-green btn-block" onclick="doSignup()">Create Account</button>
+      <p class="auth-toggle">Already have an account? <a onclick="showAuthPanel('login')">Sign in</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DASHBOARD ============ -->
+<audio id="bg-music" src="bg-music.mp3" loop preload="auto"></audio>
+<audio id="quiz-music" preload="auto"></audio>
+<section id="v-dashboard" class="view">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div>
+      <h1>SPBCN Spelling Bee</h1>
+      <p class="subtitle">Hi, <span id="dash-username"></span>!</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="music-btn" id="music-toggle" onclick="toggleMusic()" title="Toggle music">&#9835;</button>
+      <button class="music-btn" id="sfx-toggle" onclick="toggleSfx()" title="Toggle click sounds">&#128264;</button>
+      <button class="logout-btn" onclick="doLogout()">Sign out</button>
+      <button class="gear-btn" onclick="openSettings()" title="Settings">&#9881;</button>
+    </div>
+  </div>
+
+  <div class="ring-progress glass" id="dash-ring"></div>
+
+  <div class="dash-nav">
+    <button class="dash-nav-btn" onclick="showView('sort')">
+      <div class="nav-icon nav-icon-sort">&#9776;</div>Sort Words
+    </button>
+    <button class="dash-nav-btn" onclick="openQuizSetup(2)">
+      <div class="nav-icon nav-icon-t2">&#9733;</div>Quiz Tier 2
+    </button>
+    <button class="dash-nav-btn" onclick="openQuizSetup(3)">
+      <div class="nav-icon nav-icon-t3">&#9888;</div>Quiz Tier 3
+    </button>
+    <button class="dash-nav-btn" onclick="showView('import')">
+      <div class="nav-icon nav-icon-import">&#128228;</div>Import
+    </button>
+    <button class="dash-nav-btn" onclick="showView('review')">
+      <div class="nav-icon nav-icon-review">&#128269;</div>Review
+    </button>
+    <button class="dash-nav-btn" onclick="showView('export')">
+      <div class="nav-icon nav-icon-export">&#128190;</div>Export
+    </button>
+  </div>
+
+  <div style="text-align:center;margin-top:8px;">
+    <button class="btn btn-sm btn-gray" onclick="resetAll()">Reset All Data</button>
+  </div>
+</section>
+
+<!-- ============ SORT ============ -->
+<section id="v-sort" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="showView('dashboard')">&larr;</button>
+    <span class="counter" id="sort-counter"></span>
+  </div>
+  <div class="card sort-word" id="sort-card">
+    <div class="word" id="sort-word"></div>
+    <p class="hint">Press 1 (Easy) &middot; 2 (Tricky) &middot; 3 (Unknown) &middot; S (Skip)</p>
+  </div>
+  <div class="sort-btns">
+    <button class="btn btn-green" onclick="assignTier(1)">Easy</button>
+    <button class="btn btn-amber" onclick="assignTier(2)">Tricky</button>
+    <button class="btn btn-red" onclick="assignTier(3)">Unknown</button>
+  </div>
+  <div style="text-align:center;">
+    <button class="btn btn-sm btn-gray" onclick="skipSort()">Skip</button>
+  </div>
+  <div id="sort-done" class="card" style="display:none;text-align:center;padding:40px 20px;">
+    <div style="font-size:2rem;margin-bottom:12px;">&#10003;</div>
+    <p style="font-size:1.1rem;font-weight:600;">All words sorted!</p>
+    <button class="btn btn-green" style="margin-top:16px;" onclick="showView('dashboard')">Back to Dashboard</button>
+  </div>
+</section>
+
+<!-- ============ QUIZ SETUP ============ -->
+<section id="v-quiz-setup" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="showView('dashboard')">&larr;</button>
+    <span style="font-weight:600;">Quiz Setup</span>
+    <button class="gear-btn" onclick="openSettings()">&#9881;</button>
+  </div>
+  <div class="card">
+    <h2>Select Tiers</h2>
+    <div class="quiz-setup-option" id="qs-tiers">
+      <button class="btn btn-amber btn-sm" data-tier="2" onclick="toggleQSTier(2)">Tier 2</button>
+      <button class="btn btn-red btn-sm" data-tier="3" onclick="toggleQSTier(3)">Tier 3</button>
+    </div>
+    <p id="qs-pool-info" style="font-size:.85rem;color:var(--text-light);margin-bottom:16px;"></p>
+    <h2>How many words?</h2>
+    <div class="quiz-setup-option" id="qs-count">
+      <button class="btn btn-outline btn-sm" data-count="10" onclick="setQSCount(10)">10</button>
+      <button class="btn btn-outline btn-sm" data-count="15" onclick="setQSCount(15)">15</button>
+      <button class="btn btn-outline btn-sm" data-count="20" onclick="setQSCount(20)">20</button>
+      <button class="btn btn-outline btn-sm" data-count="30" onclick="setQSCount(30)">30</button>
+      <button class="btn btn-outline btn-sm" data-count="0" onclick="setQSCount(0)">All</button>
+    </div>
+    <button class="btn btn-green btn-block btn-lg" style="margin-top:8px;" onclick="startQuiz()">Start Quiz</button>
+  </div>
+</section>
+
+<!-- ============ QUIZ ============ -->
+<section id="v-quiz" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="confirmQuitQuiz()">&larr;</button>
+    <span class="counter" id="quiz-counter"></span>
+    <button class="gear-btn" onclick="openSettings()">&#9881;</button>
+  </div>
+
+  <div id="quiz-playing">
+    <div class="quiz-play-area">
+      <button class="play-btn" onclick="playCurrentWord()" id="play-btn" title="Play word (Space)">
+        <svg viewBox="0 0 24 24"><polygon points="6,3 20,12 6,21"/></svg>
+      </button>
+    </div>
+    <div class="prompter-btns">
+      <button class="btn btn-outline btn-sm" onclick="speakInfo('definition')">Definition</button>
+      <button class="btn btn-outline btn-sm" onclick="speakInfo('sentence')">Sentence</button>
+      <button class="btn btn-outline btn-sm" onclick="speakInfo('origin')">Origin</button>
+    </div>
+    <div class="quiz-input-wrap">
+      <input type="text" class="quiz-input" id="quiz-input" placeholder="Type your spelling..." autocomplete="off" autocapitalize="none" spellcheck="false">
+      <div class="quiz-submit-row">
+        <button class="btn btn-green btn-block" onclick="submitAnswer()">Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="quiz-feedback" class="feedback" style="display:none;"></div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section id="v-results" class="view">
+  <div class="top-bar">
+    <span style="font-weight:600;">Results</span>
+  </div>
+  <div class="card result-score" id="results-score"></div>
+  <div class="card" id="results-mastered" style="display:none;">
+    <h2 style="color:var(--green);">Words Mastered</h2>
+    <ul class="mastered-list" id="results-mastered-list"></ul>
+  </div>
+  <div class="card" id="results-wrong" style="display:none;">
+    <h2>Words to Review</h2>
+    <ul class="wrong-list" id="results-wrong-list"></ul>
+  </div>
+  <div id="practice-btn-wrap" style="display:none;margin-top:8px;">
+    <button class="btn btn-amber btn-block btn-lg" onclick="startPracticeDrill()">Practice Wrong Words Now</button>
+  </div>
+  <div id="pending-prompt" class="pending-prompt" style="display:none;">
+    <p>You have <strong id="pending-count">0</strong> words pending confirmation. Quick review?</p>
+    <button class="btn btn-blue btn-sm" style="background:var(--blue);color:#fff;" onclick="startPendingReview()">Start Review</button>
+    <button class="btn btn-gray btn-sm" onclick="document.getElementById('pending-prompt').style.display='none'">Skip</button>
+  </div>
+  <div id="hopper-btn-wrap" style="display:none;margin-top:8px;">
+    <button class="btn btn-block btn-lg" style="background:#8b5cf6;color:#fff;" onclick="showView('hopper')">🚇 Play Subway Super Hopper!</button>
+  </div>
+  <button class="btn btn-green btn-block btn-lg" style="margin-top:8px;" onclick="showView('dashboard')">Back to Dashboard</button>
+</section>
+
+<!-- ============ PRACTICE DRILL ============ -->
+<section id="v-drill" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="showView('results')">&larr;</button>
+    <span class="counter" id="drill-counter"></span>
+    <span></span>
+  </div>
+  <div class="card">
+    <div class="drill-area" id="drill-area"></div>
+  </div>
+</section>
+
+<!-- ============ PENDING REVIEW ============ -->
+<section id="v-pending" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="confirmQuitPending()">&larr;</button>
+    <span class="counter" id="pr-counter"></span>
+    <button class="gear-btn" onclick="openSettings()">&#9881;</button>
+  </div>
+  <div id="pr-playing">
+    <div class="quiz-play-area">
+      <button class="play-btn" onclick="playPendingWord()" title="Play word (Space)">
+        <svg viewBox="0 0 24 24"><polygon points="6,3 20,12 6,21"/></svg>
+      </button>
+    </div>
+    <p style="text-align:center;color:var(--blue);font-size:.85rem;margin-bottom:16px;">Pending Confirmation Review</p>
+    <div class="quiz-input-wrap">
+      <input type="text" class="quiz-input" id="pr-input" placeholder="Type your spelling..." autocomplete="off" autocapitalize="none" spellcheck="false">
+      <div class="quiz-submit-row">
+        <button class="btn btn-green btn-block" onclick="submitPendingReview()">Submit</button>
+      </div>
+    </div>
+  </div>
+  <div id="pr-feedback" class="feedback" style="display:none;"></div>
+</section>
+
+<!-- ============ SUBWAY SUPER HOPPER ============ -->
+<section id="v-hopper" class="view">
+  <div class="top-bar">
+    <span style="font-weight:600;">Subway Super Hopper</span>
+  </div>
+  <div class="hopper-wrap">
+    <canvas id="hopper-canvas" width="400" height="600"></canvas>
+    <div class="hopper-hud" id="hopper-hud" style="display:none;">
+      <span id="hopper-score-hud">Score: 0</span>
+      <span id="hopper-time-hud">Time: 60s</span>
+    </div>
+    <div class="hopper-overlay" id="hopper-start">
+      <h2>Subway Super Hopper</h2>
+      <p style="margin-bottom:16px;opacity:.8;">Dodge the bee nests! Use arrow keys or swipe.</p>
+      <button class="btn btn-green btn-lg" onclick="startHopper()">Start</button>
+    </div>
+    <div class="hopper-overlay hidden" id="hopper-over">
+      <h2>Game Over</h2>
+      <div class="hscore" id="hopper-final-score">0</div>
+      <div class="hbest" id="hopper-best">Best: 0</div>
+      <button class="btn btn-green btn-lg" onclick="startHopper()" style="margin-bottom:8px;">Play Again</button>
+      <button class="btn btn-outline btn-lg" onclick="showView('dashboard')">Back to Dashboard</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ REVIEW ============ -->
+<section id="v-review" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="showView('dashboard')">&larr;</button>
+    <span style="font-weight:600;">Review Tiers</span>
+    <span></span>
+  </div>
+  <div class="tabs" id="review-tabs">
+    <button class="tab-btn t1 active-tab" onclick="setReviewTab(1)">Tier 1 (<span id="rt-c1">0</span>)</button>
+    <button class="tab-btn t2" onclick="setReviewTab(2)">Tier 2 (<span id="rt-c2">0</span>)</button>
+    <button class="tab-btn t3" onclick="setReviewTab(3)">Tier 3 (<span id="rt-c3">0</span>)</button>
+  </div>
+  <input type="text" class="search-box" id="review-search" placeholder="Search words..." oninput="renderReviewList()">
+  <div class="card" style="padding:8px 12px;">
+    <div class="word-list" id="review-list"></div>
+  </div>
+</section>
+
+<!-- ============ EXPORT ============ -->
+<section id="v-export" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="showView('dashboard')">&larr;</button>
+    <span style="font-weight:600;">Export Lists</span>
+    <span></span>
+  </div>
+  <div class="card">
+    <p style="font-size:.9rem;color:var(--text-light);margin-bottom:16px;">Download each tier as a text file (one word per line).</p>
+    <div class="export-btns">
+      <button class="btn btn-green btn-block" onclick="exportTier(1)">Export Tier 1 (Easy)</button>
+      <button class="btn btn-amber btn-block" onclick="exportTier(2)">Export Tier 2 (Tricky)</button>
+      <button class="btn btn-red btn-block" onclick="exportTier(3)">Export Tier 3 (Unknown)</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ IMPORT ============ -->
+<section id="v-import" class="view">
+  <div class="top-bar">
+    <button class="back-btn" onclick="showView('dashboard')">&larr;</button>
+    <span style="font-weight:600;">Import Words</span>
+    <span></span>
+  </div>
+  <div class="card">
+    <p style="font-size:.9rem;color:var(--text-light);margin-bottom:12px;">Import a .txt file or paste words below. Separate words by commas or new lines.</p>
+    <input type="file" id="import-file" accept=".txt,.csv" style="margin-bottom:10px;font-family:var(--font);font-size:.5rem;color:var(--text-light);width:100%;">
+    <textarea id="import-text" class="auth-input" style="height:120px;resize:vertical;margin-bottom:10px;font-size:.5rem;" placeholder="Or paste words here..."></textarea>
+    <div id="import-result" style="font-size:.5rem;margin-bottom:10px;display:none;"></div>
+    <button class="btn btn-green btn-block" onclick="doImport()">Import Words</button>
+  </div>
+</section>
+
+<!-- ============ SETTINGS MODAL ============ -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <h3>Speech Settings</h3>
+    <label for="rate-slider">Speech Rate</label>
+    <input type="range" id="rate-slider" min="0.5" max="1.2" step="0.05" value="0.85" oninput="updateRateLabel()">
+    <span class="rate-val" id="rate-val">0.85</span>
+    <label for="voice-select">Voice</label>
+    <select id="voice-select" class="tier-select" style="width:100%;padding:8px;margin-bottom:16px;font-size:.9rem;"></select>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-green btn-block" onclick="saveSettingsModal()">Save</button>
+      <button class="btn btn-gray btn-block" onclick="closeSettings()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RESET MODAL ============ -->
+<div class="modal-overlay" id="reset-modal">
+  <div class="modal">
+    <h3>Reset All Data?</h3>
+    <p style="color:var(--text-light);font-size:.9rem;margin:12px 0 20px;">This will clear all your progress and word divisions. This cannot be undone.</p>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-red btn-block" onclick="confirmReset()">Yes, Reset</button>
+      <button class="btn btn-gray btn-block" onclick="closeResetModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== WORD DATA =====
+const T1_DEFAULT = [
+  "Asian", "British", "Canada", "Canadian", "China", "Chinese", "Eastern", "English", "European", "French", "German",
+  "Indian", "Irish", "Italian", "Japanese", "Latin", "London", "Mexican", "Moscow", "Muslim", "Palestinian", "Roman",
+  "Russian", "Singapore", "Spanish", "Sydney", "abroad", "absent", "accent", "acceptable", "access", "accomplice",
+  "accountant", "accounting", "accurate", "ache", "achieve", "achievement", "activist", "additional", "admit",
+  "advantage", "advertise", "advise", "agent", "aim", "airline", "alike", "alive", "allow", "aloud", "altogether",
+  "amazed", "ambience", "amount", "analogy", "ancient", "angel", "animal", "animated", "animation", "ankle",
+  "anniversary", "announce", "announcement", "annoy", "annoyed", "annoying", "annual", "anxious", "apart", "apple",
+  "apply", "appraise", "approach", "approve", "approximate", "archery", "architecture", "arctic", "argument", "arm",
+  "art", "ashamed", "asleep", "assistant", "association", "athlete", "athletics", "attitude", "attract", "audience",
+  "aunt", "author", "auto", "average", "avoid", "awake", "awful", "background", "backpack", "backstroke", "backward",
+  "baggage", "basketball", "bat", "bathroom", "battle", "bean", "bear", "beat", "beautiful", "beaver", "bedroom",
+  "beep", "beer", "behave", "behavioral", "belong", "benefit", "big", "biography", "biological", "bitter", "blade",
+  "blank", "bleed", "blow", "boar", "board", "body", "boil", "bomb", "bombing", "bookstore", "boost", "border",
+  "bottom", "bounce", "bowl", "boxing", "bracelet", "brake", "brash", "brave", "bread", "break", "breath", "brick",
+  "broccoli", "brown", "browse", "bucket", "buddy", "bug", "builder", "bull", "bullet", "bunch", "bunny", "burn",
+  "burning", "burst", "bus", "busy", "but", "butter", "button", "buy", "buyer", "cab", "cabbage", "cabinet", "cable",
+  "cake", "calculator", "calibrate", "call", "calm", "camel", "camera", "candy", "cap", "capable", "capacity",
+  "captain", "careful", "careless", "caress", "carrot", "carry", "cartoon", "cash", "casual", "cat", "cattle",
+  "celebration", "celebrity", "ceremony", "certificate", "chain", "challenge", "challenging", "championship",
+  "changing", "character", "charming", "chase", "cheap", "check", "chest", "childhood", "children", "choice",
+  "chopsticks", "circus", "civilized", "clap", "class", "classic", "clean", "client", "cliff", "climate", "clinic",
+  "clip", "closer", "closet", "clothes", "club", "coach", "coal", "cocoa", "coconut", "code", "collapse", "collector",
+  "column", "come", "comedy", "comfortable", "comment", "communication", "compete", "complicated", "composition",
+  "compound", "computer", "confident", "confused", "confusing", "connect", "connection", "consonant", "context",
+  "continent", "continued", "continuing", "control", "convert", "convince", "convinced", "cook", "cop", "correction",
+  "cotton", "couch", "count", "cousin", "cow", "crane", "crawl", "crayon", "creation", "creative", "creature", "crew",
+  "criminal", "crisis", "crop", "crossing", "cruel", "cruise", "cultural", "currency", "curve", "cushion", "custom",
+  "cute", "cutting", "cyclical", "cyclist", "dad", "damage", "damaged", "danger", "dangerous", "darling", "dash",
+  "daughter", "dead", "deal", "dear", "death", "decline", "decorator", "decrease", "deer", "defeat", "deliver",
+  "delivery", "demand", "demanding", "denominator", "depart", "departure", "deposit", "deserve", "design", "designer",
+  "destroy", "detailed", "detective", "device", "diagram", "diet", "difficulty", "dig", "digestion", "direct",
+  "direction", "dirt", "disabled", "disappear", "discover", "discovery", "discussion", "display", "distance", "diver",
+  "divide", "divine", "divorce", "divorced", "doctor", "dollar", "dot", "double", "doubt", "download", "dozen", "drama",
+  "drinking", "driver", "driving", "duck", "dust", "dusty", "eating", "economics", "edition", "effect", "either",
+  "electrical", "electronic", "elementary", "elephant", "elite", "emergency", "emperor", "ending", "enemy", "enormous",
+  "entire", "entry", "eraser", "estimate", "evict", "excitement", "excuse", "exist", "existing", "expensive",
+  "experiment", "expert", "explanation", "explode", "explore", "extend", "extended", "extreme", "fair", "fairy",
+  "false", "family", "famous", "fan", "fang", "farm", "farmer", "farming", "fat", "feedback", "fewer", "fight",
+  "fighting", "figure", "final", "finally", "find", "finish", "first", "fix", "flip", "float", "flood", "floor", "fold",
+  "folk", "food", "fool", "foot", "forever", "forget", "forgive", "fork", "formally", "freeze", "freezer", "frequency",
+  "fridge", "friend", "friendly", "frozen", "fruit", "fry", "fuel", "fun", "funeral", "funny", "fur", "garden",
+  "gardener", "gender", "general", "ghost", "given", "glove", "goat", "grab", "grandma", "grandpa", "grape", "greatest",
+  "greet", "growing", "guess", "guest", "guitarist", "gun", "gym", "gymnastics", "habit", "haircut", "hall", "hamlet",
+  "hand", "handwriting", "hang", "hangar", "hashtag", "hat", "head", "hear", "heart", "heaven", "height", "hell",
+  "helmet", "help", "helper", "hero", "hidden", "hide", "high", "hire", "historic", "historical", "hobby", "homework",
+  "honest", "honeymoon", "hook", "hopeful", "horse", "host", "housework", "hug", "human", "humid", "hunger", "hunting",
+  "hurry", "icy", "ideal", "illness", "imagination", "imagine", "immigrant", "immigration", "increase", "increased",
+  "increasing", "increasingly", "incredible", "indoors", "ingredient", "injure", "ink", "inside", "inspector",
+  "inspire", "install", "instruct", "instructor", "intelligent", "interrupt", "interval", "interview", "invention",
+  "inventor", "inventory", "investor", "involved", "involvement", "iron", "irregular", "jacket", "jar", "job",
+  "jogging", "joke", "jostle", "journalist", "joy", "judgment", "juicy", "jungle", "just", "justice", "keeper", "key",
+  "kid", "killer", "killing", "kitchen", "knife", "knit", "knock", "knot", "knowledge", "lab", "label", "laboratory",
+  "lady", "ladybug", "landing", "landscape", "laser", "lately", "laundry", "lawyer", "leader", "league", "learning",
+  "leg", "length", "letter", "level", "library", "license", "lie", "lifestyle", "lighting", "lightning", "limit",
+  "limited", "link", "liquid", "literature", "little", "lizard", "load", "lobby", "location", "lock", "log", "logo",
+  "long", "lookout", "lost", "lots", "magnet", "magnification", "mainly", "manage", "manual", "map", "market",
+  "marking", "marriage", "mask", "mate", "math", "maximum", "mayor", "meaning", "meanwhile", "medal", "medalist",
+  "medium", "membership", "memory", "messy", "metal", "method", "mile", "mine", "minimum", "minister", "minor",
+  "miracle", "mix", "mixture", "model", "mom", "monument", "mood", "mosaic", "motive", "much", "mud", "multiply",
+  "murder", "muscle", "museum", "musician", "mutant", "mystery", "myth", "mythic", "napkin", "nasty", "nervous", "net",
+  "nightmare", "nineteen", "none", "nor", "northern", "northwest", "nose", "notebook", "nothing", "now", "nowadays",
+  "nowhere", "nurse", "obligate", "obvious", "ocean", "office", "okay", "only", "onto", "opinion", "opportunity",
+  "ordinary", "other", "otherwise", "outdoor", "oven", "overall", "owe", "owner", "pack", "painful", "painstaking",
+  "parent", "parental", "parking", "parrot", "partner", "pass", "passion", "password", "paste", "patient", "payment",
+  "pea", "peace", "peaceful", "peak", "pear", "pen", "people", "pepper", "perform", "permanent", "permission", "phase",
+  "phone", "phrase", "pick", "pickup", "picture", "pie", "pierce", "pig", "pigeon", "pilot", "pin", "pipe", "pirate",
+  "pizza", "plate", "player", "playground", "playing", "playoff", "plenty", "plus", "pocket", "poem", "poetry",
+  "pollution", "pond", "poor", "population", "pork", "portion", "portrait", "position", "positive", "postman", "pot",
+  "potato", "pounce", "pound", "pour", "prank", "pregnant", "prepared", "presentation", "presenter", "preserve",
+  "presidential", "press", "pretend", "prevention", "previous", "priest", "prince", "princess", "print", "privacy",
+  "private", "privy", "pro", "problem-solving", "processing", "produce", "profession", "professor", "profile",
+  "projector", "promise", "promote", "promotion", "promptly", "pronoun", "pronounce", "proof", "propeller", "proper",
+  "property", "proposal", "proposed", "protect", "protest", "proud", "prove", "provide", "provided", "public",
+  "publish", "pump", "pumpkin", "punch", "punctuation", "punish", "pupil", "puppet", "purpose", "puzzled", "quality",
+  "quiet", "quit", "quiz", "racing", "radiator", "rage", "rail", "rainforest", "raise", "range", "rather", "raw",
+  "reach", "react", "read", "reader", "ready", "real", "reality", "realm", "reasonable", "recall", "recession",
+  "recipe", "recorder", "recording", "recycle", "recycled", "reduce", "reduction", "redwood", "reference", "refill",
+  "refund", "refuse", "regarding", "region", "regional", "regularly", "religion", "remaining", "remediation", "remind",
+  "repeat", "replace", "reply", "report", "reporter", "reporting", "request", "rescue", "research", "reset", "respect",
+  "responsible", "restaurant", "result", "retired", "review", "revise", "ride", "rifle", "right", "rise", "risk", "rob",
+  "role", "roll", "romance", "romantic", "roof", "root", "rose", "rough", "round", "round-up", "route", "routine",
+  "row", "rubbish", "rude", "ruin", "rule", "rumor", "rustle", "safe", "safety", "sailor", "salary", "sale", "sales",
+  "salesman", "salmon", "sandal", "sandy", "sanity", "satisfied", "satisfying", "sauce", "scanner", "scared", "scary",
+  "scatter", "schedule", "scientist", "score", "search", "seating", "second", "secondary", "secret", "section",
+  "selfish", "seller", "series", "serious", "server", "service", "serving", "setting", "settle", "seventeen", "sex",
+  "shadow", "shady", "shake", "shape", "shared", "sharp", "shave", "shine", "shining", "shiny", "ship", "shock",
+  "shocked", "shocking", "shoe", "shoot", "shooting", "shout", "shutter", "sight", "signal", "signature", "silence",
+  "silk", "silly", "similar", "sixteen", "size", "ski", "skin", "slap", "slay", "sleepy", "slip", "small", "smart",
+  "snail", "so", "sock", "sofa", "softball", "soil", "soldier", "solution", "solve", "soul", "soup", "source",
+  "souvenir", "spaceship", "speaker", "spice", "spicy", "spider", "splash", "split", "spoon", "sportsman", "spread",
+  "spy", "squirrel", "stab", "stage", "standing", "star", "stare", "starter", "starting", "statue", "steal", "steep",
+  "step", "sticky", "storybook", "stove", "straight", "stranger", "strawberry", "stream", "streaming", "stress",
+  "stressful", "strike", "stuck", "student", "study", "stupid", "style", "stylish", "submit", "successful", "suitable",
+  "sum", "summon", "sunglasses", "sunrise", "sunset", "sunshine", "supply", "support", "supposed", "surf", "surface",
+  "surgery", "surprising", "surround", "swear", "sweat", "sweater", "swimmer", "symbol", "table", "tablespoon",
+  "tablet", "tail", "takeaway", "talent", "talented", "talk", "tall", "target", "task", "taste", "tasty", "taxi",
+  "teach", "teaching", "temperate", "temple", "temporary", "tennis", "tense", "terminal", "terms", "terribly",
+  "terrific", "terrorism", "testing", "text", "thankful", "thanksgiving", "them", "theme", "therapy", "therefore",
+  "thick", "thief", "think", "thirteen", "this", "thought", "thousand", "throat", "thumb", "thunder", "tight", "till",
+  "timing", "tiny", "tissue", "title", "tomato", "tone", "tongue", "tool", "toothpaste", "topic", "toss", "totally",
+  "touch", "tough", "tournament", "tower", "toy", "track", "tracksuit", "trade", "trader", "trading", "tradition",
+  "traditional", "tragedy", "trail", "trailer", "train", "transfer", "trend", "triangle", "tribe", "trick", "trolley",
+  "tropical", "trouble", "truck", "trump", "trumpet", "trust", "try", "turbine", "turkey", "turning", "twin", "twinkle",
+  "typical", "typically", "ugly", "ultimate", "uncle", "underwear", "unemployed", "unemployment", "unexpected",
+  "unfair", "unfit", "unforgettable", "unhealthy", "union", "united", "unknown", "unlikely", "unlucky", "unnecessary",
+  "upload", "upper", "upstairs", "us", "used", "user", "usual", "valuable", "value", "vanish", "variety", "vascular",
+  "vase", "vegetarian", "vet", "via", "vibrate", "victim", "victory", "video", "viewer", "violate", "violation",
+  "virtual", "visa", "vlog", "voice", "volume", "vote", "vowel", "wait", "walk", "wall", "warning", "wasp", "waterfall",
+  "watermelon", "way", "weak", "wear", "wedding", "weight", "well-being", "were", "western", "wheelchair", "whenever",
+  "wherever", "white", "wildlife", "will", "windmill", "window", "wise", "wonder", "working", "workman", "workout",
+  "works", "world", "worst", "wrap", "writer", "written", "yard", "yawn", "yell", "yield", "yoga", "yours", "yourself",
+  "zebra", "zone"
+];
+
+const T2_DEFAULT = [
+  "American", "Catholic", "accommodation", "ad", "agency", "aide", "alphabet", "ammonia", "apparently", "aptitude",
+  "aquarium", "aquifer", "armed", "attach", "attend", "attribute", "automobile", "babysit", "besides", "billow",
+  "blind", "bliss", "blog", "bold", "breathe", "breeze", "broad", "brochure", "broker", "budge", "campus", "canal",
+  "candidate", "carbohydrate", "carbonization", "cavernous", "celebrate", "characteristic", "cognitive", "concentrate",
+  "concentration", "confess", "consciousness", "convenient", "council", "criticism", "declare", "degree", "delighted",
+  "depth", "description", "destination", "developing", "disagree", "disappoint", "disappointed", "disappointing",
+  "dishwasher", "documentary", "donkey", "downstairs", "duty", "earnings", "edge", "educational", "efficient",
+  "eighteen", "eighty", "elsewhere", "embarrassed", "emerge", "employer", "employment", "encourage", "engineering",
+  "enjoyable", "enroll", "ensure", "entertain", "entertainment", "environment", "equipment", "essay", "estimated",
+  "evidence", "exact", "examiner", "exchange", "exhausted", "exhibition", "expansion", "expense", "experience",
+  "experienced", "expression", "extensive", "extraordinary", "fashion", "fashionable", "fear", "fearsome", "fever",
+  "fiction", "financial", "firefighter", "fitness", "flour", "following", "forbidden", "forehead", "foreigner", "forth",
+  "fountain", "fourteen", "friendship", "galactic", "gallery", "gasp", "gentle", "gentleman", "giraffe", "glasses",
+  "gorgeous", "grading", "grapefruit", "grassland", "grateful", "gratefully", "greeting", "grief", "handle", "hardware",
+  "hay", "haze", "headline", "headphone", "headquarters", "highlight", "hopeless", "horsepower", "imitate", "immediate",
+  "immersion", "implement", "inch", "increment", "initial", "initially", "injection", "inner", "intercommunity",
+  "interior", "intermediate", "interplay", "investigate", "investigation", "investigator", "invoke", "laden", "leafy",
+  "lecture", "lighter", "litter", "lobbyist", "longtime", "lottery", "lower", "loyalty", "madam", "magnificent",
+  "maker", "man-made", "manually", "manufacturer", "maple", "meaningful", "medicinal", "misunderstand", "momentous",
+  "moral", "mosquito", "motorcycle", "naked", "nationality", "naturally", "naughty", "nearby", "neat", "necessary",
+  "nectar", "nephew", "nice", "nonprofit", "observable", "observance", "occasion", "offering", "opposite", "opposition",
+  "orchestra", "outdoors", "outlay", "outside", "overcome", "overnight", "overture", "pan", "pancake", "panda",
+  "parade", "paragraph", "parcel", "participate", "participation", "passage", "patrol", "pedestrian", "penetrate",
+  "penguin", "performer", "pharmacy", "piracy", "pitch", "planning", "pleasant", "podcast", "political", "politician",
+  "politics", "powder", "powerful", "prayer", "preparation", "preparatory", "pronunciation", "psychological",
+  "psychologist", "publication", "puppetry", "pure", "quantity", "quarterback", "railroad", "recipient",
+  "recommendation", "registration", "regulatory", "reindeer", "related", "relaxation", "relaxed", "relevant",
+  "reliable", "replica", "reproductive", "repudiate", "requisite", "reserve", "resort", "resource", "revenue",
+  "reverberate", "reversal", "revision", "revival", "rickety", "rooster", "sailboat", "sailing", "saucepan", "saucer",
+  "screw", "sew", "sheriff", "shuttle", "sidewalk", "silky", "sleeping", "smooth", "snowboard", "somehow", "southwest",
+  "specialize", "spectacular", "spoil", "stripe", "stroke", "succeed", "suggest", "suggestion", "suicide", "sweatshirt",
+  "switch", "tackle", "teenage", "tender", "tourism", "transcription", "translation", "transport", "trunk", "tuck",
+  "tulip", "tunnel", "unbelievable", "uncomfortable", "underline", "understanding", "unless", "unmistakable",
+  "unpleasant", "unsettling", "unsuccessful", "upbringing", "valley", "vehicle", "venture", "verse", "weigh", "widely"
+];
+
+const T3_DEFAULT = [
+  "Iraqi", "Israeli", "acquisition", "acreage", "admonish", "akimbo", "alibi", "annotate", "antique", "apex", "apology",
+  "arsenic", "artistry", "bay", "chasm", "cheerful", "chin", "chug", "cigar", "circumstantial", "civic", "cleanliness",
+  "coast", "coastal", "cocoon", "cod", "coke", "compelling", "compensation", "competitor", "complaint", "concealed",
+  "conduit", "consequently", "contest", "conversation", "correspondent", "corrugated", "cortex", "cottage", "coup",
+  "cranky", "credibility", "cross-country", "crumble", "culmination", "curiously", "curriculum", "defendant",
+  "deregulation", "derive", "descend", "desirability", "detractor", "dew", "dial", "diaphragm", "disadvantage",
+  "disclose", "dislike", "dislocation", "distaste", "doctrine", "domestic", "dose", "dustbin", "dynamics", "earache",
+  "elastic", "elitist", "embarrass", "embassy", "emergent", "empirical", "enact", "engagement", "epitomize", "equity",
+  "ethnography", "evidently", "evocative", "exertion", "expedition", "extinguish", "fare", "fasten", "fax", "fence",
+  "fencing", "ferocious", "fetch", "fidget", "fluke", "forecast", "fortnight", "fortune", "frame", "fraught",
+  "frequent", "freshman", "frightened", "frightening", "futility", "gale", "gap", "generous", "gimmick", "glint",
+  "gouge", "gram", "grant", "grip", "grocer", "groom", "hallucination", "handkerchief", "harbor", "hare", "harp",
+  "heady", "herb", "herring", "hind", "hip", "hive", "hoop", "hose", "hostel", "hundred", "hydrocarbon", "iconography",
+  "impatience", "import", "inadequacy", "indignant", "inexpensive", "influence", "inform", "ingest", "inquiry",
+  "instinctive", "institutional", "interchange", "intricacy", "invent", "invest", "judge", "judicial", "keen", "lanky",
+  "lattice", "leakage", "legislative", "leisure", "lens", "lever", "lifespan", "ligament", "lighthouse", "limelight",
+  "linger", "linguistic", "linoleum", "lip", "litigation", "loan", "longing", "loom", "loose", "lure", "lyrical",
+  "mandate", "mandatory", "manipulative", "manslaughter", "mare", "marine", "maroon", "memorable", "memorial", "mend",
+  "metaphysics", "methodical", "minimize", "mischief", "mischievous", "misgiving", "monolithic", "more", "moreover",
+  "mosque", "moth", "mule", "mural", "narrow", "nevertheless", "niece", "nightclub", "nip", "nobility", "nod", "nook",
+  "nozzle", "nylon", "obligation", "oblique", "oblivion", "obscurity", "onward", "operating", "operation", "oral",
+  "overweight", "pastor", "pavement", "peck", "peg", "perceptual", "petrified", "pile", "pill", "plantation", "plug",
+  "poignant", "pollen", "porch", "postpone", "poverty", "practitioner", "precedent", "precious", "precision",
+  "predispose", "preposition", "prescription", "prowl", "prune", "quail", "questionnaire", "ramp", "ravage",
+  "reactionary", "reciprocity", "reconciliation", "reconnaissance", "redistribution", "resentful", "reservation",
+  "resin", "restrain", "retail", "rigid", "rod", "rural", "saunter", "sawdust", "scotch", "screwdriver", "scrutiny",
+  "sculpture", "seaweed", "semblance", "senator", "sensible", "sensitive", "sequel", "sequential", "shed", "sheep",
+  "sheer", "shimmer", "shipyard", "shore", "shortage", "shrill", "shroud", "slam", "sled", "sleeve", "slither",
+  "sluggish", "sneakers", "snout", "so-called", "sociable", "soggy", "sore", "sour", "southeast", "splatter", "spruce",
+  "stake", "stalk", "stall", "stance", "staring", "statehood", "stationery", "statistics", "stem", "stimulus", "stingy",
+  "stinking", "stool", "stout", "strive", "stubborn", "submerged", "subtle", "suburb", "suffocate", "sultan",
+  "susceptibility", "swan", "swiftly", "syllable", "tacit", "tack", "tale", "tear", "technique", "telltale",
+  "terrified", "testimony", "theology", "thicket", "thorough", "thriller", "tick", "torment", "tortoise", "trance",
+  "triathlon", "tuna", "twig", "urban", "urgent", "vile", "vulture", "waft", "wag", "wage", "wander", "wayward",
+  "wedge", "whereas", "whiskey", "whom", "whose", "windsurfing", "wisdom", "wisp"
+];
+
+const WORDS = [...T1_DEFAULT, ...T2_DEFAULT, ...T3_DEFAULT];
+
+// ===== SPACED REPETITION CONSTANTS (v2) =====
+const CORRECT_DELTA = -3;
+const WRONG_DELTA = 4;
+const REP_CAP = 10;
+const FIRST_CORRECT_REP = 2;
+const FIRST_WRONG_REP = 3;
+const DEFAULT_QUIZ_SIZE = 15;
+const REVIEW_RATIO = 0.4;
+const PENDING_REVIEW_INTERVAL = 3;
+const PENDING_REVIEW_MAX = 15;
+const TIME_DECAY_FACTOR = 1.5;
+// Markov chain expected steps to absorption (p=0.7, -3/+4 system)
+const EXPECTED_STEPS = [0.0, 2.5, 2.7, 3.1, 4.9, 5.1, 5.7, 7.0, 7.1, 7.5, 8.4];
+
+// ===== STORAGE & API =====
+let authToken = localStorage.getItem('spbcn_token');
+let currentUser = null;
+
+async function api(method, path, body) {
+  const opts = {
+    method,
+    headers: {}
+  };
+  if (authToken) opts.headers['Authorization'] = 'Bearer ' + authToken;
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  if (res.status === 401) {
+    authToken = null;
+    localStorage.removeItem('spbcn_token');
+    currentUser = null;
+    showView('login');
+    throw new Error('Session expired');
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+// Debounced save queue
+const _pendingSaves = {};
+let _saveTimer = null;
+
+function queueSave(field, data) {
+  _pendingSaves[field] = data;
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(flushSaves, 500);
+}
+
+function flushSaves() {
+  _saveTimer = null;
+  const saves = { ..._pendingSaves };
+  Object.keys(_pendingSaves).forEach(k => delete _pendingSaves[k]);
+  Object.entries(saves).forEach(([field, data]) => {
+    let path, body;
+    if (field === 'words') { path = '/api/data/words'; body = { words: data }; }
+    else if (field === 'quizCount') { path = '/api/data/quiz-count'; body = { quizCount: data }; }
+    else if (field === 'history') { path = '/api/data/history'; body = { history: data }; }
+    else if (field === 'settings') { path = '/api/data/settings'; body = { settings: data }; }
+    else if (field === 'hopper') { path = '/api/data/hopper'; body = { hopperHighScore: data }; }
+    if (path) api('PUT', path, body).catch(err => console.error('Save error:', field, err));
+  });
+}
+
+let wordData = {};
+let quizSessionCount = 0;
+let quizHistory = [];
+let settings = { speechRate: 0.85, voiceURI: '' };
+let dictCache = {};
+
+function getDictCacheKey() {
+  return currentUser ? 'spbcn.' + currentUser.username + '.dictCache' : 'spbcn._none.dictCache';
+}
+
+// ===== AUTH =====
+function showAuthPanel(panel) {
+  document.querySelectorAll('.auth-panel').forEach(p => p.classList.remove('active'));
+  const el = document.getElementById('auth-' + panel);
+  if (el) el.classList.add('active');
+  document.querySelectorAll('.auth-error').forEach(e => { e.textContent = ''; e.classList.remove('visible'); });
+}
+
+function showAuthError(panelId, msg) {
+  const el = document.getElementById(panelId);
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+
+async function doLogin() {
+  const username = document.getElementById('login-username').value.trim().toLowerCase();
+  const password = document.getElementById('login-password').value;
+  if (!username || !password) { showAuthError('login-error', 'Please fill in all fields.'); return; }
+  try {
+    const data = await api('POST', '/api/auth/login', { username, password });
+    authToken = data.token;
+    localStorage.setItem('spbcn_token', authToken);
+    await loginAs(data.username, data.name);
+  } catch (e) {
+    showAuthError('login-error', e.message || 'Invalid username or password.');
+  }
+}
+
+async function doSignup() {
+  const name = document.getElementById('signup-name').value.trim();
+  const username = document.getElementById('signup-username').value.trim().toLowerCase();
+  const password = document.getElementById('signup-password').value;
+  if (!name || !username || !password) { showAuthError('signup-error', 'Please fill in all fields.'); return; }
+  if (username.length < 3) { showAuthError('signup-error', 'Username must be at least 3 characters.'); return; }
+  if (password.length < 4) { showAuthError('signup-error', 'Password must be at least 4 characters.'); return; }
+  if (/[^a-z0-9_]/.test(username)) { showAuthError('signup-error', 'Username: only letters, numbers, underscore.'); return; }
+  try {
+    const data = await api('POST', '/api/auth/signup', { username, password, name });
+    authToken = data.token;
+    localStorage.setItem('spbcn_token', authToken);
+    await loginAs(data.username, data.name);
+  } catch (e) {
+    showAuthError('signup-error', e.message || 'Signup failed.');
+  }
+}
+
+async function loginAs(username, name) {
+  currentUser = { username, name };
+
+  // Reset in-memory state
+  wordData = {};
+  quizSessionCount = 0;
+  quizHistory = [];
+  settings = { speechRate: 0.85, voiceURI: '' };
+  dictCache = {};
+  hopperHighScore = 0;
+
+  // Load data from server
+  try {
+    const data = await api('GET', '/api/data');
+    if (data.words && Object.keys(data.words).length > 0) {
+      wordData = data.words;
+      // Migrate v1 word data to v2 (add missing fields)
+      let needsSave = false;
+      Object.keys(wordData).forEach(k => {
+        const d = wordData[k];
+        if (d.lastSeen === undefined) { d.lastSeen = 0; needsSave = true; }
+        if (d.streak === undefined) { d.streak = 0; needsSave = true; }
+        if (d.encounters === undefined) { d.encounters = 0; needsSave = true; }
+      });
+      if (needsSave) saveWordData();
+    } else {
+      // Try migrating localStorage data to server
+      const migrated = await migrateLocalStorageToServer(username);
+      if (!migrated) {
+        // New user: initialize all words as unsorted
+        wordData = {};
+        WORDS.forEach(w => wordData[w] = newWord('unsorted', 0));
+        saveWordData();
+      }
+    }
+    quizSessionCount = data.quizCount || 0;
+    quizHistory = data.history || [];
+    settings = { speechRate: 0.85, voiceURI: '', ...data.settings };
+    hopperHighScore = data.hopperHighScore || 0;
+  } catch (e) {
+    console.error('Failed to load data:', e);
+    wordData = {};
+    WORDS.forEach(w => wordData[w] = newWord('unsorted', 0));
+  }
+
+  // Load device-local caches
+  try {
+    const d = localStorage.getItem(getDictCacheKey());
+    if (d) dictCache = JSON.parse(d);
+  } catch(e) {}
+
+  const hash = window.location.hash.replace('#', '') || 'dashboard';
+  if (VALID_VIEWS.includes(hash)) showView(hash);
+  else showView('dashboard');
+}
+
+async function doLogout() {
+  flushSaves();
+  try { await api('POST', '/api/auth/logout'); } catch(e) {}
+  authToken = null;
+  localStorage.removeItem('spbcn_token');
+  currentUser = null;
+  wordData = {};
+  quizSessionCount = 0;
+  quizHistory = [];
+  hopperHighScore = 0;
+  // Clear auth form fields
+  document.querySelectorAll('.auth-input').forEach(i => i.value = '');
+  document.querySelectorAll('.auth-error').forEach(e => { e.textContent = ''; e.classList.remove('visible'); });
+  showView('login');
+}
+
+async function migrateLocalStorageToServer(username) {
+  // Check for old localStorage keys from pre-database version
+  const prefix = 'spbcn.' + username + '.';
+  const oldWordsKey = prefix + 'words';
+  const oldWords = localStorage.getItem(oldWordsKey);
+  if (!oldWords) return false;
+
+  try {
+    const words = JSON.parse(oldWords);
+    const quizCount = parseInt(localStorage.getItem(prefix + 'quizCount')) || 0;
+    let history = [];
+    try { history = JSON.parse(localStorage.getItem(prefix + 'history')) || []; } catch(e) {}
+    let sett = {};
+    try { sett = JSON.parse(localStorage.getItem(prefix + 'settings')) || {}; } catch(e) {}
+    const hopperHS = parseInt(localStorage.getItem(prefix + 'hopperHighScore')) || 0;
+
+    const result = await api('POST', '/api/data/migrate', {
+      words, quizCount, history, settings: sett, hopperHighScore: hopperHS
+    });
+
+    if (result.migrated) {
+      wordData = words;
+      quizSessionCount = quizCount;
+      quizHistory = history;
+      settings = { speechRate: 0.85, voiceURI: '', ...sett };
+      hopperHighScore = hopperHS;
+
+      // Clean up old localStorage keys (keep dictCache - device-local)
+      localStorage.removeItem(oldWordsKey);
+      localStorage.removeItem(prefix + 'quizCount');
+      localStorage.removeItem(prefix + 'history');
+      localStorage.removeItem(prefix + 'settings');
+      localStorage.removeItem(prefix + 'hopperHighScore');
+      localStorage.removeItem(prefix + 'oldAssignments');
+      return true;
+    }
+  } catch(e) {
+    console.error('Migration error:', e);
+  }
+  return false;
+}
+
+function newWord(state, tier) {
+  return { state, rep: 0, tier, lastSeen: 0, streak: 0, encounters: 0 };
+}
+
+function saveWordData() {
+  queueSave('words', wordData);
+}
+function saveQuizCount() {
+  queueSave('quizCount', quizSessionCount);
+}
+function saveHistory() {
+  queueSave('history', quizHistory);
+}
+function saveSettings() {
+  queueSave('settings', settings);
+}
+function saveDictCache() {
+  localStorage.setItem(getDictCacheKey(), JSON.stringify(dictCache));
+}
+function saveHopperHighScore() {
+  queueSave('hopper', hopperHighScore);
+}
+
+function resetAll() {
+  document.getElementById('reset-modal').classList.add('open');
+}
+function closeResetModal() {
+  document.getElementById('reset-modal').classList.remove('open');
+}
+async function confirmReset() {
+  closeResetModal();
+  try {
+    await api('POST', '/api/data/reset');
+  } catch(e) {
+    console.error('Reset error:', e);
+  }
+  settings = { speechRate: 0.85, voiceURI: '' };
+  dictCache = {};
+  quizSessionCount = 0;
+  quizHistory = [];
+  hopperHighScore = 0;
+  wordData = {};
+  WORDS.forEach(w => wordData[w] = newWord('unsorted', 0));
+  saveWordData();
+  showView('dashboard');
+}
+
+// ===== WORD STATE HELPERS =====
+function getWD(word) {
+  return wordData[word] || { state: 'unsorted', rep: 0, tier: 0 };
+}
+
+function getWordsByState(state) {
+  return Object.entries(wordData)
+    .filter(([_, d]) => d.state === state)
+    .map(([w]) => w);
+}
+
+function getStateCounts() {
+  const c = { unsorted: 0, tier2: 0, tier3: 0, still_learning: 0, pending: 0, i_know: 0 };
+  Object.values(wordData).forEach(d => { c[d.state] = (c[d.state] || 0) + 1; });
+  return c;
+}
+
+function getWordsByTier(tier) {
+  return Object.entries(wordData)
+    .filter(([_, d]) => d.tier === tier)
+    .map(([w]) => w)
+    .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+}
+
+// Backward compat for review/export
+function getWordsInTier(tier) { return getWordsByTier(tier); }
+function getCounts() {
+  let c = { 1: 0, 2: 0, 3: 0, 0: 0 };
+  Object.values(wordData).forEach(d => { c[d.tier] = (c[d.tier] || 0) + 1; });
+  return c;
+}
+
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ===== BACKGROUND MUSIC =====
+let musicWanted = localStorage.getItem('spbcn_music') !== 'off';
+const bgMusic = document.getElementById('bg-music');
+const quizMusic = document.getElementById('quiz-music');
+bgMusic.volume = 0.35;
+quizMusic.volume = 0.3;
+
+const QUIZ_TRACKS = [
+  'bg-music.mp3',
+  'music-wet-hands.mp3',
+  'music-subwoofer-lullaby.mp3'
+];
+let quizTrackOrder = [];
+let quizTrackIdx = 0;
+
+function shuffleQuizTracks() {
+  quizTrackOrder = shuffleArray([...QUIZ_TRACKS]);
+  quizTrackIdx = 0;
+}
+
+function playNextQuizTrack() {
+  if (!musicWanted) return;
+  if (quizTrackIdx >= quizTrackOrder.length) {
+    shuffleQuizTracks();
+  }
+  quizMusic.src = quizTrackOrder[quizTrackIdx++];
+  quizMusic.play().catch(() => {});
+}
+
+quizMusic.addEventListener('ended', () => {
+  if (currentView === 'quiz') playNextQuizTrack();
+});
+
+function startQuizMusic() {
+  if (!musicWanted) return;
+  bgMusic.pause();
+  shuffleQuizTracks();
+  playNextQuizTrack();
+}
+
+function stopQuizMusic() {
+  quizMusic.pause();
+  quizMusic.currentTime = 0;
+}
+
+function updateMusicBtn() {
+  const btn = document.getElementById('music-toggle');
+  if (!btn) return;
+  const anyPlaying = !bgMusic.paused || !quizMusic.paused;
+  btn.textContent = anyPlaying ? '\u266B' : '\u266A';
+  btn.classList.toggle('playing', anyPlaying);
+  btn.title = anyPlaying ? 'Pause music' : 'Play music';
+}
+
+function handleDashboardMusic(onDashboard) {
+  if (onDashboard) {
+    stopQuizMusic();
+    if (musicWanted) bgMusic.play().catch(() => {});
+  } else {
+    bgMusic.pause();
+    if (currentView !== 'quiz') stopQuizMusic();
+  }
+  updateMusicBtn();
+}
+
+function toggleMusic() {
+  const inQuiz = currentView === 'quiz';
+  const activePlayer = inQuiz ? quizMusic : bgMusic;
+
+  if (activePlayer.paused) {
+    musicWanted = true;
+    if (inQuiz) playNextQuizTrack();
+    else activePlayer.play().catch(() => {});
+  } else {
+    musicWanted = false;
+    bgMusic.pause();
+    quizMusic.pause();
+  }
+  localStorage.setItem('spbcn_music', musicWanted ? 'on' : 'off');
+  updateMusicBtn();
+}
+
+bgMusic.addEventListener('play', updateMusicBtn);
+bgMusic.addEventListener('pause', updateMusicBtn);
+quizMusic.addEventListener('play', updateMusicBtn);
+quizMusic.addEventListener('pause', updateMusicBtn);
+
+// ===== VIEW ROUTING =====
+let currentView = 'dashboard';
+
+function showView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const el = document.getElementById('v-' + id);
+  if (el) {
+    el.classList.add('active');
+    el.style.animation = 'none';
+    el.offsetHeight;
+    el.style.animation = '';
+  }
+  currentView = id;
+  if (id !== 'login') window.location.hash = id;
+
+  const beeBg = document.getElementById('bee-bg');
+  if (beeBg) beeBg.style.display = (id === 'dashboard') ? '' : 'none';
+
+  handleDashboardMusic(id === 'dashboard');
+
+  if (id === 'dashboard') renderDashboard();
+  else if (id === 'sort') startSort();
+  else if (id === 'review') { currentReviewTab = 1; renderReview(); }
+}
+
+// ===== DASHBOARD =====
+function renderDashboard() {
+  if (currentUser) {
+    const uEl = document.getElementById('dash-username');
+    if (uEl) uEl.textContent = currentUser.name;
+  }
+  const sc = getStateCounts();
+  const total = WORDS.length;
+  const masteredPct = Math.round(sc.i_know / total * 100);
+  const r = 46, circ = 2 * Math.PI * r;
+  const offset = circ - (masteredPct / 100) * circ;
+
+  const items = [
+    { n: sc.i_know, label: 'Mastered', color: 'var(--green)' },
+    { n: sc.still_learning, label: 'Learning', color: 'var(--orange)' },
+    { n: sc.pending, label: 'Pending', color: 'var(--blue)' },
+    { n: sc.tier2 + sc.tier3, label: 'New', color: 'var(--amber)' },
+    { n: sc.unsorted, label: 'Unsorted', color: '#94a3b8' }
+  ];
+
+  document.getElementById('dash-ring').innerHTML =
+    `<div class="ring-wrap">
+      <svg viewBox="0 0 100 100">
+        <circle class="ring-bg" cx="50" cy="50" r="${r}"/>
+        <circle class="ring-fill" cx="50" cy="50" r="${r}"
+          stroke="var(--green)" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/>
+      </svg>
+      <div class="ring-label">${masteredPct}%<small>mastered</small></div>
+    </div>
+    <div class="ring-stats">
+      ${items.map(i =>
+        `<div class="ring-stat">
+          <div class="ring-dot" style="background:${i.color}"></div>
+          <span><span class="rs-num">${i.n}</span> ${i.label}</span>
+        </div>`
+      ).join('')}
+    </div>`;
+}
+
+// ===== SORT =====
+let sortQueue = [];
+let sortIndex = 0;
+
+function startSort() {
+  sortQueue = getWordsByState('unsorted');
+  sortQueue = shuffleArray(sortQueue);
+  sortIndex = 0;
+  showSortWord();
+}
+
+function showSortWord() {
+  const card = document.getElementById('sort-card');
+  const done = document.getElementById('sort-done');
+  if (sortIndex >= sortQueue.length) {
+    card.style.display = 'none';
+    document.querySelector('.sort-btns').style.display = 'none';
+    document.querySelector('.sort-btns + div').style.display = 'none';
+    done.style.display = 'block';
+    return;
+  }
+  card.style.display = '';
+  document.querySelector('.sort-btns').style.display = '';
+  document.querySelector('.sort-btns + div').style.display = '';
+  done.style.display = 'none';
+  document.getElementById('sort-word').textContent = sortQueue[sortIndex];
+  const sorted = Object.values(wordData).filter(d => d.state !== 'unsorted').length;
+  document.getElementById('sort-counter').textContent = `${sorted} / ${WORDS.length} sorted`;
+}
+
+function assignTier(tier) {
+  if (sortIndex >= sortQueue.length) return;
+  const word = sortQueue[sortIndex];
+  if (tier === 1) wordData[word] = newWord('i_know', 1);
+  else if (tier === 2) wordData[word] = newWord('tier2', 2);
+  else if (tier === 3) wordData[word] = newWord('tier3', 3);
+  saveWordData();
+  sortIndex++;
+  showSortWord();
+}
+
+function skipSort() {
+  if (sortIndex >= sortQueue.length) return;
+  sortIndex++;
+  showSortWord();
+}
+
+// ===== TTS =====
+let voicesLoaded = false;
+function getVoices() {
+  return speechSynthesis.getVoices();
+}
+
+function getEnglishVoice() {
+  const voices = getVoices();
+  if (settings.voiceURI) {
+    const saved = voices.find(v => v.voiceURI === settings.voiceURI);
+    if (saved) return saved;
+  }
+  const enVoices = voices.filter(v => v.lang.startsWith('en'));
+  const preferred = enVoices.find(v => v.name.includes('Samantha'))
+    || enVoices.find(v => v.name.includes('Google') && v.name.includes('US'))
+    || enVoices.find(v => v.name.includes('Daniel'))
+    || enVoices.find(v => v.lang === 'en-US')
+    || enVoices[0]
+    || voices[0];
+  return preferred;
+}
+
+function speak(text, rate) {
+  if (speechSynthesis.speaking || speechSynthesis.pending) {
+    speechSynthesis.cancel();
+  }
+  const u = new SpeechSynthesisUtterance(text);
+  const v = getEnglishVoice();
+  if (v) u.voice = v;
+  u.rate = rate || settings.speechRate;
+  u.pitch = 1;
+  u.lang = 'en-US';
+  speechSynthesis.speak(u);
+  speechSynthesis.resume();
+}
+
+// ===== AUDIO BEEP =====
+let audioCtx;
+function playBeep(freq, duration) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.frequency.value = freq || 880;
+  osc.type = 'sine';
+  gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + (duration || 0.2));
+  osc.start();
+  osc.stop(audioCtx.currentTime + (duration || 0.2));
+}
+
+function playSuccess() {
+  playBeep(523, 0.1);
+  setTimeout(() => playBeep(659, 0.1), 100);
+  setTimeout(() => playBeep(784, 0.15), 200);
+}
+
+function playWrong() {
+  playBeep(330, 0.15);
+  setTimeout(() => playBeep(262, 0.25), 150);
+}
+
+// ===== DICTIONARY =====
+async function fetchWordInfo(word) {
+  const key = word.toLowerCase();
+  if (dictCache[key]) return dictCache[key];
+  try {
+    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(key)}`);
+    if (!res.ok) throw new Error('not found');
+    const data = await res.json();
+    const entry = data[0];
+    const meaning = entry.meanings && entry.meanings[0];
+    const def = meaning && meaning.definitions && meaning.definitions[0];
+    const info = {
+      definition: def ? def.definition : null,
+      example: def ? def.example : null,
+      origin: entry.origin || (meaning ? meaning.partOfSpeech : null),
+      ts: Date.now()
+    };
+    dictCache[key] = info;
+    saveDictCache();
+    return info;
+  } catch {
+    const info = { definition: null, example: null, origin: null, ts: Date.now() };
+    dictCache[key] = info;
+    saveDictCache();
+    return info;
+  }
+}
+
+// ===== QUIZ =====
+let quizTiers = [2];
+let quizCount = 10;
+let quizWords = [];     // array of { word, isReview, isFirstEncounter }
+let quizIndex = 0;
+let quizResults = [];
+let quizState = 'playing';
+let quizAdvanceTimer = null;
+let quizMasteredThisSession = [];
+
+function openQuizSetup(preset) {
+  if (preset === 23) quizTiers = [2, 3];
+  else quizTiers = [preset];
+  quizCount = DEFAULT_QUIZ_SIZE;
+  showView('quiz-setup');
+  updateQSUI();
+}
+
+function toggleQSTier(t) {
+  const i = quizTiers.indexOf(t);
+  if (i >= 0 && quizTiers.length > 1) quizTiers.splice(i, 1);
+  else if (i < 0) quizTiers.push(t);
+  updateQSUI();
+}
+
+function setQSCount(n) {
+  quizCount = n;
+  updateQSUI();
+}
+
+function updateQSUI() {
+  document.querySelectorAll('#qs-tiers .btn').forEach(b => {
+    const t = parseInt(b.dataset.tier);
+    b.classList.toggle('selected', quizTiers.includes(t));
+  });
+  document.querySelectorAll('#qs-count .btn').forEach(b => {
+    const c = parseInt(b.dataset.count);
+    b.classList.toggle('selected', quizCount === c);
+  });
+  let newPool = 0;
+  quizTiers.forEach(t => {
+    newPool += getWordsByState(t === 2 ? 'tier2' : 'tier3').length;
+  });
+  const reviewPool = getWordsByState('still_learning').length;
+  document.getElementById('qs-pool-info').textContent =
+    `${newPool} new + ${reviewPool} review words available`;
+}
+
+// Time-weighted Markov sampling (v2)
+function selectionWeight(word) {
+  const wd = getWD(word);
+  const baseWeight = EXPECTED_STEPS[wd.rep];
+  const sessionGap = quizSessionCount - wd.lastSeen;
+  const timeBoost = 1 + Math.sqrt(sessionGap / TIME_DECAY_FACTOR);
+  return baseWeight * timeBoost;
+}
+
+function selectReviewWords(pool, count) {
+  const selected = [];
+  const remaining = [...pool];
+  for (let i = 0; i < count && remaining.length > 0; i++) {
+    const weights = remaining.map(w => selectionWeight(w));
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    if (totalWeight === 0) break;
+    let r = Math.random() * totalWeight;
+    for (let j = 0; j < remaining.length; j++) {
+      r -= weights[j];
+      if (r <= 0) {
+        selected.push(remaining[j]);
+        remaining.splice(j, 1);
+        break;
+      }
+    }
+  }
+  return selected;
+}
+
+function startQuiz() {
+  // Gather pools
+  let newPool = [];
+  quizTiers.forEach(t => {
+    newPool.push(...getWordsByState(t === 2 ? 'tier2' : 'tier3'));
+  });
+  const allStillLearning = getWordsByState('still_learning');
+
+  if (newPool.length === 0 && allStillLearning.length === 0) {
+    alert('No words available for quiz! Sort some words first.');
+    return;
+  }
+
+  const totalAvailable = newPool.length + allStillLearning.length;
+  const N = quizCount > 0 ? Math.min(quizCount, totalAvailable) : totalAvailable;
+
+  // Determine mix
+  const reviewCount = Math.min(allStillLearning.length, Math.floor(N * REVIEW_RATIO));
+  let newCount = N - reviewCount;
+
+  // Select review words (weighted)
+  let reviewWords = selectReviewWords(allStillLearning, reviewCount);
+
+  // Select new words (random)
+  let newWords = shuffleArray(newPool).slice(0, newCount);
+
+  // If not enough new words, fill remaining slots with more review words
+  if (newWords.length < newCount && allStillLearning.length > reviewWords.length) {
+    const deficit = newCount - newWords.length;
+    const extraPool = allStillLearning.filter(w => !reviewWords.includes(w));
+    const extra = selectReviewWords(extraPool, deficit);
+    reviewWords = reviewWords.concat(extra);
+  }
+
+  // Tag words
+  const tagged = [
+    ...reviewWords.map(w => ({ word: w, isReview: true, isFirstEncounter: false })),
+    ...newWords.map(w => ({ word: w, isReview: false, isFirstEncounter: true }))
+  ];
+
+  quizWords = shuffleArray(tagged);
+  quizIndex = 0;
+  quizResults = [];
+  quizMasteredThisSession = [];
+  quizState = 'playing';
+
+  // Edge case messages
+  if (newPool.length === 0 && allStillLearning.length > 0) {
+    alert("You've seen all new words in the selected tier(s)! This quiz is all review.");
+  }
+
+  showView('quiz');
+  startQuizMusic();
+  showQuizWord();
+}
+
+function showQuizWord() {
+  if (quizIndex >= quizWords.length) {
+    showResults();
+    return;
+  }
+  quizState = 'playing';
+  const entry = quizWords[quizIndex];
+  const badge = entry.isReview
+    ? '<span class="word-type-badge badge-review">Review</span>'
+    : '<span class="word-type-badge badge-new">New</span>';
+  document.getElementById('quiz-counter').innerHTML =
+    `Word ${quizIndex + 1} of ${quizWords.length} ${badge}`;
+  document.getElementById('quiz-playing').style.display = '';
+  document.getElementById('quiz-feedback').style.display = 'none';
+  const inp = document.getElementById('quiz-input');
+  inp.value = '';
+  inp.disabled = false;
+  setTimeout(() => inp.focus(), 100);
+  fetchWordInfo(entry.word).catch(() => {});
+}
+
+function playCurrentWord() {
+  if (quizIndex < quizWords.length) {
+    speak(quizWords[quizIndex].word);
+  }
+}
+
+function speakInfo(type) {
+  if (quizIndex >= quizWords.length) return;
+  const word = quizWords[quizIndex].word;
+  const key = word.toLowerCase();
+  if (dictCache[key]) { speakInfoText(type, dictCache[key]); return; }
+  speak('Loading');
+  fetchWordInfo(word).then(info => speakInfoText(type, info));
+}
+
+function speakInfoText(type, info) {
+  let text = '';
+  if (type === 'definition') {
+    text = info.definition || 'No definition available';
+  } else if (type === 'sentence') {
+    if (info.example) text = info.example;
+    else text = info.definition ? 'The word is used in context: ' + info.definition : 'No example sentence available';
+  } else if (type === 'origin') {
+    text = info.origin ? 'Origin: ' + info.origin : 'English origin';
+  }
+  speak(text);
+}
+
+function getRepBadgeHtml(rep, state) {
+  if (state === 'i_know') return '<span class="rep-badge rep-mastered">Mastered</span>';
+  if (state === 'pending') return '<span class="rep-badge rep-pending">Pending review</span>';
+  if (rep === 0) return '';
+  let cls, label;
+  if (rep <= 2) { cls = 'rep-green'; label = 'Almost there'; }
+  else if (rep <= 5) { cls = 'rep-yellow'; label = 'Learning'; }
+  else if (rep <= 8) { cls = 'rep-orange'; label = 'Struggling'; }
+  else { cls = 'rep-red'; label = 'Needs work'; }
+  return `<span class="rep-badge ${cls}">${label} (${rep})</span>`;
+}
+
+function submitAnswer() {
+  if (quizState !== 'playing' || quizIndex >= quizWords.length) return;
+  const inp = document.getElementById('quiz-input');
+  const attempt = inp.value.trim();
+  if (!attempt) return;
+  inp.disabled = true;
+
+  const entry = quizWords[quizIndex];
+  const word = entry.word;
+  const isCorrect = attempt.toLowerCase() === word.toLowerCase();
+  const wd = getWD(word);
+
+  // Update tracking fields
+  wordData[word] = { ...wd, encounters: (wd.encounters || 0) + 1, lastSeen: quizSessionCount };
+
+  // Apply state transition (before retry)
+  if (entry.isFirstEncounter) {
+    if (isCorrect) {
+      wordData[word].state = 'pending';
+      wordData[word].rep = FIRST_CORRECT_REP;
+      wordData[word].streak = 1;
+    } else {
+      wordData[word].state = 'still_learning';
+      wordData[word].rep = FIRST_WRONG_REP;
+      wordData[word].streak = 0;
+    }
+  } else {
+    if (isCorrect) {
+      wordData[word].streak = (wd.streak || 0) + 1;
+      wordData[word].rep = Math.max(wd.rep + CORRECT_DELTA, 0);
+      if (wordData[word].rep === 0) {
+        wordData[word].state = 'i_know';
+        quizMasteredThisSession.push(word);
+      }
+    } else {
+      wordData[word].streak = 0;
+      wordData[word].rep = Math.min(wd.rep + WRONG_DELTA, REP_CAP);
+    }
+  }
+  saveWordData();
+
+  // Record result (retryResult will be updated if immediate retry happens)
+  const result = {
+    word, attempt, correct: isCorrect,
+    isFirstEncounter: entry.isFirstEncounter, isReview: entry.isReview,
+    repBefore: wd.rep, retryResult: null
+  };
+  quizResults.push(result);
+
+  // Show feedback
+  document.getElementById('quiz-playing').style.display = 'none';
+  const fb = document.getElementById('quiz-feedback');
+  fb.style.display = '';
+
+  if (isCorrect) {
+    quizState = 'feedback-correct';
+    const updatedWD = getWD(word);
+    const repBadge = getRepBadgeHtml(updatedWD.rep, updatedWD.state);
+    const masteredText = updatedWD.state === 'i_know'
+      ? '<p style="color:var(--green);font-weight:600;margin-top:4px;">Mastered!</p>' : '';
+    fb.innerHTML = `
+      <div class="icon pop-in" style="color:var(--green);">&#10003;</div>
+      <div style="font-size:1.4rem;font-weight:700;color:var(--green);">${escHtml(word)}</div>
+      <p style="color:var(--text-light);margin-top:8px;">Correct!</p>
+      ${masteredText}
+      <div style="margin-top:8px;">${repBadge}</div>`;
+    playSuccess();
+    quizAdvanceTimer = setTimeout(() => { quizIndex++; showQuizWord(); }, 1500);
+  } else {
+    // WRONG → show spelling + trigger Immediate Retry
+    quizState = 'retry';
+    const diffHtml = buildDiff(attempt, word);
+    let moveBtn = '';
+    if (getWD(word).tier === 2) {
+      moveBtn = `<button class="btn btn-red btn-sm" style="margin-top:8px;" onclick="moveToTier3InQuiz('${word.replace(/'/g, "\\'")}', this)">Move to Tier 3</button>`;
+    }
+    fb.innerHTML = `
+      <div class="icon pop-in" style="color:var(--red);">&#10007;</div>
+      <p class="correct-word-label">Correct spelling:</p>
+      <div class="diff-display">${diffHtml}</div>
+      <p class="your-attempt">You typed: ${escHtml(attempt)}</p>
+      ${moveBtn}
+      <p style="color:var(--text-light);font-size:.9rem;margin-top:16px;">Now type the correct spelling:</p>
+      <div class="quiz-input-wrap" style="margin-top:8px;">
+        <input type="text" class="quiz-input" id="retry-input" placeholder="Type correct spelling..." autocomplete="off" autocapitalize="none" spellcheck="false">
+        <div class="quiz-submit-row">
+          <button class="btn btn-green btn-block" onclick="submitRetry()">Confirm</button>
+        </div>
+      </div>`;
+    playWrong();
+    setTimeout(() => { const ri = document.getElementById('retry-input'); if (ri) ri.focus(); }, 100);
+  }
+}
+
+function submitRetry() {
+  const inp = document.getElementById('retry-input');
+  if (!inp) return;
+  const attempt = inp.value.trim();
+  if (!attempt) return;
+
+  const entry = quizWords[quizIndex];
+  const word = entry.word;
+  const lastResult = quizResults[quizResults.length - 1];
+
+  if (attempt.toLowerCase() === word.toLowerCase()) {
+    // Successful retry — undo most of the penalty
+    const wd = getWD(word);
+    const newRep = Math.max(wd.rep + CORRECT_DELTA, 0);
+    wordData[word] = { ...wd, rep: newRep };
+    if (newRep === 0) {
+      wordData[word].state = 'i_know';
+      quizMasteredThisSession.push(word);
+    }
+    saveWordData();
+    lastResult.retryResult = 'correct';
+
+    // Show success and advance
+    playSuccess();
+    const updatedWD = getWD(word);
+    const repBadge = getRepBadgeHtml(updatedWD.rep, updatedWD.state);
+    const masteredText = updatedWD.state === 'i_know'
+      ? '<p style="color:var(--green);font-weight:600;margin-top:4px;">Mastered!</p>' : '';
+    const fb = document.getElementById('quiz-feedback');
+    fb.innerHTML = `
+      <div class="icon pop-in" style="color:var(--amber);">&#10003;</div>
+      <div style="font-size:1.2rem;font-weight:700;color:var(--amber);">${escHtml(word)}</div>
+      <p style="color:var(--text-light);margin-top:4px;">Retry correct! (net +1 rep)</p>
+      ${masteredText}
+      <div style="margin-top:8px;">${repBadge}</div>`;
+    quizState = 'feedback-retry-ok';
+    quizAdvanceTimer = setTimeout(() => { quizIndex++; showQuizWord(); }, 1500);
+  } else {
+    // Retry wrong — no additional penalty, show spelling again, loop
+    lastResult.retryResult = 'wrong';
+    inp.style.borderColor = 'var(--red)';
+    setTimeout(() => { if (inp) inp.style.borderColor = ''; }, 500);
+    inp.value = '';
+    inp.focus();
+  }
+}
+
+function moveToTier3InQuiz(word, btn) {
+  if (wordData[word]) wordData[word].tier = 3;
+  saveWordData();
+  btn.textContent = 'Moved to Tier 3';
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+}
+
+function nextAfterWrong() {
+  quizIndex++;
+  showQuizWord();
+}
+
+function confirmQuitQuiz() {
+  if (quizAdvanceTimer) clearTimeout(quizAdvanceTimer);
+  if (quizResults.length > 0 && !confirm('Quit quiz? Answered words are saved but this won\'t count as a completed session.')) return;
+  stopQuizMusic();
+  showView('dashboard');
+}
+
+// ===== DIFF =====
+function buildDiff(attempt, correct) {
+  const a = attempt.toLowerCase();
+  const c = correct.toLowerCase();
+  let html = '';
+  const maxLen = Math.max(a.length, c.length);
+  for (let i = 0; i < correct.length; i++) {
+    if (i < a.length && a[i] === c[i]) {
+      html += `<span class="correct">${escHtml(correct[i])}</span>`;
+    } else {
+      html += `<span class="wrong">${escHtml(correct[i])}</span>`;
+    }
+  }
+  return html;
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ===== RESULTS =====
+function showResults() {
+  stopQuizMusic();
+  showView('results');
+  const correct = quizResults.filter(r => r.correct).length;
+  const total = quizResults.length;
+  const pct = total > 0 ? Math.round(correct / total * 100) : 0;
+  const color = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
+
+  document.getElementById('results-score').innerHTML = `
+    <div class="big" style="color:${color}">${correct}/${total}</div>
+    <div class="pct">${pct}%</div>`;
+
+  // Mastered this session
+  const mc = document.getElementById('results-mastered');
+  if (quizMasteredThisSession.length > 0) {
+    mc.style.display = '';
+    document.getElementById('results-mastered-list').innerHTML =
+      quizMasteredThisSession.map(w =>
+        `<li><span class="answer">${escHtml(w)}</span> <span class="rep-badge rep-mastered">Mastered!</span></li>`
+      ).join('');
+  } else {
+    mc.style.display = 'none';
+  }
+
+  // Wrong words with rep badges
+  const wrong = quizResults.filter(r => !r.correct);
+  const wc = document.getElementById('results-wrong');
+  const wl = document.getElementById('results-wrong-list');
+  if (wrong.length > 0) {
+    wc.style.display = '';
+    wl.innerHTML = wrong.map(r => {
+      const wd = getWD(r.word);
+      const badge = getRepBadgeHtml(wd.rep, wd.state);
+      return `<li>
+        <div><span class="answer">${escHtml(r.word)}</span>
+        <span class="attempt">${escHtml(r.attempt)}</span></div>
+        ${badge}
+      </li>`;
+    }).join('');
+    document.getElementById('practice-btn-wrap').style.display = '';
+  } else {
+    wc.style.display = 'none';
+    document.getElementById('practice-btn-wrap').style.display = 'none';
+  }
+
+  // Save history
+  quizHistory.push({
+    date: new Date().toISOString().split('T')[0],
+    tier: quizTiers.join('+'),
+    total, correct,
+    mastered: quizMasteredThisSession.length,
+    reviewWords: quizResults.filter(r => r.isReview).length,
+    newWords: quizResults.filter(r => !r.isReview).length
+  });
+  saveHistory();
+
+  // Increment session counter and check pending review trigger
+  quizSessionCount++;
+  saveQuizCount();
+  const pp = document.getElementById('pending-prompt');
+  if (quizSessionCount % PENDING_REVIEW_INTERVAL === 0) {
+    const pendingWords = getWordsByState('pending');
+    if (pendingWords.length > 0) {
+      pp.style.display = '';
+      document.getElementById('pending-count').textContent = pendingWords.length;
+    } else {
+      pp.style.display = 'none';
+    }
+  } else {
+    pp.style.display = 'none';
+  }
+
+  // Subway Super Hopper unlock
+  const hopperBtn = document.getElementById('hopper-btn-wrap');
+  hopperBtn.style.display = pct >= 80 ? '' : 'none';
+}
+
+// ===== PRACTICE DRILL =====
+let drillWords = [];
+let drillIndex = 0;
+let drillPhase = 'show'; // 'show' | 'confirm' | 'memory'
+
+function startPracticeDrill() {
+  drillWords = quizResults.filter(r => !r.correct).map(r => r.word);
+  if (drillWords.length === 0) return;
+  drillIndex = 0;
+  drillPhase = 'show';
+  showView('drill');
+  showDrillWord();
+}
+
+function showDrillWord() {
+  if (drillIndex >= drillWords.length) {
+    showView('results');
+    return;
+  }
+  const word = drillWords[drillIndex];
+  document.getElementById('drill-counter').textContent =
+    `Practice ${drillIndex + 1} of ${drillWords.length}`;
+  const area = document.getElementById('drill-area');
+
+  if (drillPhase === 'show') {
+    speak(word);
+    area.innerHTML = `
+      <div style="font-size:2rem;font-weight:700;margin:20px 0;">${escHtml(word)}</div>
+      <p style="color:var(--text-light);margin-bottom:16px;">Listen and study the spelling</p>
+      <button class="btn btn-green btn-lg" onclick="drillToConfirm()">Ready to type</button>`;
+  } else if (drillPhase === 'confirm') {
+    area.innerHTML = `
+      <div style="font-size:1.6rem;font-weight:700;margin:16px 0;color:var(--text-light);">${escHtml(word)}</div>
+      <p style="color:var(--text-light);margin-bottom:12px;">Type the spelling to confirm</p>
+      <div class="quiz-input-wrap">
+        <input type="text" class="quiz-input" id="drill-input" placeholder="Type the word..." autocomplete="off" autocapitalize="none" spellcheck="false">
+        <div class="quiz-submit-row">
+          <button class="btn btn-green btn-block" onclick="submitDrillConfirm()">Check</button>
+        </div>
+      </div>`;
+    setTimeout(() => { const i = document.getElementById('drill-input'); if (i) i.focus(); }, 100);
+  } else if (drillPhase === 'memory') {
+    speak(word);
+    area.innerHTML = `
+      <div class="quiz-play-area">
+        <button class="play-btn" onclick="speak('${word.replace(/'/g, "\\'")}')">
+          <svg viewBox="0 0 24 24"><polygon points="6,3 20,12 6,21"/></svg>
+        </button>
+      </div>
+      <p style="color:var(--text-light);margin:16px 0;">Now type it from memory</p>
+      <div class="quiz-input-wrap">
+        <input type="text" class="quiz-input" id="drill-input" placeholder="Type from memory..." autocomplete="off" autocapitalize="none" spellcheck="false">
+        <div class="quiz-submit-row">
+          <button class="btn btn-green btn-block" onclick="submitDrillMemory()">Check</button>
+        </div>
+      </div>`;
+    setTimeout(() => { const i = document.getElementById('drill-input'); if (i) i.focus(); }, 100);
+  }
+}
+
+function drillToConfirm() { drillPhase = 'confirm'; showDrillWord(); }
+
+function submitDrillConfirm() {
+  const inp = document.getElementById('drill-input');
+  if (!inp) return;
+  const attempt = inp.value.trim();
+  if (!attempt) return;
+  if (attempt.toLowerCase() === drillWords[drillIndex].toLowerCase()) {
+    drillPhase = 'memory';
+    showDrillWord();
+  } else {
+    inp.style.borderColor = 'var(--red)';
+    setTimeout(() => { if (inp) inp.style.borderColor = ''; }, 500);
+    inp.value = '';
+    inp.focus();
+  }
+}
+
+function submitDrillMemory() {
+  const inp = document.getElementById('drill-input');
+  if (!inp) return;
+  const attempt = inp.value.trim();
+  if (!attempt) return;
+  if (attempt.toLowerCase() === drillWords[drillIndex].toLowerCase()) {
+    playSuccess();
+    drillIndex++;
+    drillPhase = 'show';
+    setTimeout(() => showDrillWord(), 500);
+  } else {
+    playWrong();
+    drillPhase = 'show';
+    showDrillWord();
+  }
+}
+
+// ===== PENDING REVIEW =====
+let pendingReviewWords = [];
+let pendingReviewIndex = 0;
+let pendingReviewResults = [];
+let pendingMastered = [];
+let pendingState = 'playing';
+let pendingAdvanceTimer = null;
+
+function startPendingReview() {
+  document.getElementById('pending-prompt').style.display = 'none';
+  const allPending = getWordsByState('pending');
+  pendingReviewWords = shuffleArray(allPending).slice(0, PENDING_REVIEW_MAX);
+  pendingReviewIndex = 0;
+  pendingReviewResults = [];
+  pendingMastered = [];
+  pendingState = 'playing';
+  showView('pending');
+  showPendingWord();
+}
+
+function showPendingWord() {
+  if (pendingReviewIndex >= pendingReviewWords.length) {
+    showPendingResults();
+    return;
+  }
+  pendingState = 'playing';
+  const word = pendingReviewWords[pendingReviewIndex];
+  document.getElementById('pr-counter').textContent =
+    `Review ${pendingReviewIndex + 1} of ${pendingReviewWords.length}`;
+  document.getElementById('pr-playing').style.display = '';
+  document.getElementById('pr-feedback').style.display = 'none';
+  const inp = document.getElementById('pr-input');
+  inp.value = '';
+  inp.disabled = false;
+  setTimeout(() => inp.focus(), 100);
+  speak(word);
+}
+
+function playPendingWord() {
+  if (pendingReviewIndex < pendingReviewWords.length) {
+    speak(pendingReviewWords[pendingReviewIndex]);
+  }
+}
+
+function submitPendingReview() {
+  if (pendingState !== 'playing') return;
+  const inp = document.getElementById('pr-input');
+  const attempt = inp.value.trim();
+  if (!attempt) return;
+  inp.disabled = true;
+
+  const word = pendingReviewWords[pendingReviewIndex];
+  const isCorrect = attempt.toLowerCase() === word.toLowerCase();
+  const wd = getWD(word);
+
+  // Update tracking
+  wordData[word] = { ...wd, encounters: (wd.encounters || 0) + 1, lastSeen: quizSessionCount };
+
+  const result = { word, attempt, correct: isCorrect, retryResult: null };
+  pendingReviewResults.push(result);
+
+  // Apply pending review transition rules
+  if (isCorrect) {
+    const newRep = Math.max(wd.rep + CORRECT_DELTA, 0);
+    wordData[word].rep = newRep;
+    if (newRep === 0) {
+      wordData[word].state = 'i_know';
+      pendingMastered.push(word);
+    }
+  } else {
+    wordData[word].state = 'still_learning';
+    wordData[word].rep = FIRST_WRONG_REP;
+    wordData[word].streak = 0;
+  }
+  saveWordData();
+
+  // Feedback
+  document.getElementById('pr-playing').style.display = 'none';
+  const fb = document.getElementById('pr-feedback');
+  fb.style.display = '';
+
+  if (isCorrect) {
+    pendingState = 'feedback-correct';
+    const masteredText = getWD(word).state === 'i_know'
+      ? '<p style="color:var(--green);font-weight:600;">Mastered!</p>' : '';
+    fb.innerHTML = `
+      <div class="icon pop-in" style="color:var(--green);">&#10003;</div>
+      <div style="font-size:1.4rem;font-weight:700;color:var(--green);">${escHtml(word)}</div>
+      ${masteredText}`;
+    playSuccess();
+    pendingAdvanceTimer = setTimeout(() => { pendingReviewIndex++; showPendingWord(); }, 1200);
+  } else {
+    // Wrong — immediate retry for pending too
+    pendingState = 'retry';
+    fb.innerHTML = `
+      <div class="icon pop-in" style="color:var(--red);">&#10007;</div>
+      <p class="correct-word-label">Correct spelling:</p>
+      <div class="diff-display">${buildDiff(attempt, word)}</div>
+      <p class="your-attempt">You typed: ${escHtml(attempt)}</p>
+      <p style="color:var(--amber);font-size:.85rem;margin-top:8px;">Moved to active learning</p>
+      <p style="color:var(--text-light);font-size:.9rem;margin-top:12px;">Now type the correct spelling:</p>
+      <div class="quiz-input-wrap" style="margin-top:8px;">
+        <input type="text" class="quiz-input" id="pr-retry-input" placeholder="Type correct spelling..." autocomplete="off" autocapitalize="none" spellcheck="false">
+        <div class="quiz-submit-row">
+          <button class="btn btn-green btn-block" onclick="submitPendingRetry()">Confirm</button>
+        </div>
+      </div>`;
+    playWrong();
+    setTimeout(() => { const ri = document.getElementById('pr-retry-input'); if (ri) ri.focus(); }, 100);
+  }
+}
+
+function submitPendingRetry() {
+  const inp = document.getElementById('pr-retry-input');
+  if (!inp) return;
+  const attempt = inp.value.trim();
+  if (!attempt) return;
+
+  const word = pendingReviewWords[pendingReviewIndex];
+  const lastResult = pendingReviewResults[pendingReviewResults.length - 1];
+
+  if (attempt.toLowerCase() === word.toLowerCase()) {
+    // Successful retry — partial undo
+    const wd = getWD(word);
+    const newRep = Math.max(wd.rep + CORRECT_DELTA, 0);
+    wordData[word] = { ...wd, rep: newRep };
+    if (newRep === 0) {
+      wordData[word].state = 'i_know';
+      pendingMastered.push(word);
+    }
+    saveWordData();
+    lastResult.retryResult = 'correct';
+    playSuccess();
+
+    pendingState = 'feedback-correct';
+    pendingAdvanceTimer = setTimeout(() => { pendingReviewIndex++; showPendingWord(); }, 1000);
+  } else {
+    lastResult.retryResult = 'wrong';
+    inp.style.borderColor = 'var(--red)';
+    setTimeout(() => { if (inp) inp.style.borderColor = ''; }, 500);
+    inp.value = '';
+    inp.focus();
+  }
+}
+
+function showPendingResults() {
+  const correct = pendingReviewResults.filter(r => r.correct).length;
+  const total = pendingReviewResults.length;
+  const pct = total > 0 ? Math.round(correct / total * 100) : 0;
+
+  document.getElementById('pr-playing').style.display = 'none';
+  document.getElementById('pr-feedback').style.display = 'none';
+
+  const area = document.querySelector('#v-pending');
+  const card = document.createElement('div');
+  card.className = 'card result-score';
+  card.style.animation = 'fadeIn .3s ease';
+  const color = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
+  card.innerHTML = `
+    <h2>Pending Review Complete</h2>
+    <div class="big" style="color:${color}">${correct}/${total}</div>
+    <div class="pct">${pct}%</div>
+    ${pendingMastered.length > 0 ? `<p style="color:var(--green);margin-top:8px;">${pendingMastered.length} word(s) mastered!</p>` : ''}
+    <button class="btn btn-green btn-lg" style="margin-top:16px;" onclick="showView('dashboard')">Back to Dashboard</button>`;
+  area.appendChild(card);
+}
+
+function confirmQuitPending() {
+  if (pendingAdvanceTimer) clearTimeout(pendingAdvanceTimer);
+  if (pendingReviewResults.length > 0 && !confirm('Quit review? Answered words are already saved.')) return;
+  showView('dashboard');
+}
+
+// ===== REVIEW =====
+let currentReviewTab = 1;
+
+function renderReview() {
+  const c = getCounts();
+  document.getElementById('rt-c1').textContent = c[1];
+  document.getElementById('rt-c2').textContent = c[2];
+  document.getElementById('rt-c3').textContent = c[3];
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active-tab'));
+  document.querySelector(`.tab-btn.t${currentReviewTab}`).classList.add('active-tab');
+  renderReviewList();
+}
+
+function setReviewTab(t) {
+  currentReviewTab = t;
+  document.getElementById('review-search').value = '';
+  renderReview();
+}
+
+function renderReviewList() {
+  const search = (document.getElementById('review-search').value || '').toLowerCase();
+  let words = getWordsInTier(currentReviewTab);
+  if (search) words = words.filter(w => w.toLowerCase().includes(search));
+  const list = document.getElementById('review-list');
+  if (words.length === 0) {
+    list.innerHTML = '<p style="padding:20px;text-align:center;color:var(--text-light);">No words found</p>';
+    return;
+  }
+  list.innerHTML = words.map(w => {
+    const wd = getWD(w);
+    const tier = wd.tier;
+    const badge = getRepBadgeHtml(wd.rep, wd.state);
+    return `<div class="word-row">
+      <div>
+        <span class="word-text">${escHtml(w)}</span>
+        ${badge}
+      </div>
+      <select class="tier-select" onchange="moveTier('${w.replace(/'/g, "\\'")}', this.value)">
+        <option value="1"${tier===1?' selected':''}>Tier 1</option>
+        <option value="2"${tier===2?' selected':''}>Tier 2</option>
+        <option value="3"${tier===3?' selected':''}>Tier 3</option>
+      </select>
+    </div>`;
+  }).join('');
+}
+
+function moveTier(word, newTier) {
+  const t = parseInt(newTier);
+  const wd = getWD(word);
+  if (t === 1) {
+    wordData[word] = { ...wd, tier: 1, state: 'i_know', rep: 0, streak: 0 };
+  } else if (t === 2) {
+    if (wd.state === 'i_know' || wd.state === 'unsorted') {
+      wordData[word] = { ...wd, tier: 2, state: 'tier2', rep: 0, streak: 0, encounters: 0 };
+    } else {
+      wordData[word] = { ...wd, tier: 2 };
+    }
+  } else if (t === 3) {
+    if (wd.state === 'i_know' || wd.state === 'unsorted') {
+      wordData[word] = { ...wd, tier: 3, state: 'tier3', rep: 0, streak: 0, encounters: 0 };
+    } else {
+      wordData[word] = { ...wd, tier: 3 };
+    }
+  }
+  saveWordData();
+  const c = getCounts();
+  document.getElementById('rt-c1').textContent = c[1];
+  document.getElementById('rt-c2').textContent = c[2];
+  document.getElementById('rt-c3').textContent = c[3];
+  renderReviewList();
+}
+
+// ===== EXPORT =====
+function exportTier(tier) {
+  const names = { 1: 'Easy', 2: 'Tricky', 3: 'Unknown' };
+  const words = getWordsByTier(tier);
+  const header = `SPBCN Intermediate \u2014 ${names[tier].toUpperCase()} (${words.length} words)\n${'='.repeat(50)}\n\n`;
+  const content = header + words.join('\n') + '\n';
+  const blob = new Blob([content], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `spbcn_tier_${tier}_${names[tier].toLowerCase()}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ===== IMPORT =====
+function doImport() {
+  const fileInput = document.getElementById('import-file');
+  const textArea = document.getElementById('import-text');
+  const resultDiv = document.getElementById('import-result');
+
+  if (fileInput.files.length > 0) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      processImport(e.target.result, resultDiv);
+    };
+    reader.readAsText(fileInput.files[0]);
+  } else if (textArea.value.trim()) {
+    processImport(textArea.value, resultDiv);
+  } else {
+    resultDiv.style.display = '';
+    resultDiv.style.color = 'var(--red)';
+    resultDiv.textContent = 'Please select a file or paste words.';
+  }
+}
+
+function processImport(text, resultDiv) {
+  const words = text
+    .split(/[,\n\r]+/)
+    .map(w => w.trim())
+    .filter(w => w.length > 0);
+
+  // Deduplicate (case-insensitive)
+  const seen = new Set();
+  const unique = [];
+  for (const w of words) {
+    const key = w.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(w);
+    }
+  }
+
+  let added = 0;
+  let skipped = 0;
+  for (const w of unique) {
+    const existing = Object.keys(wordData).find(k => k.toLowerCase() === w.toLowerCase());
+    if (existing) {
+      skipped++;
+    } else {
+      wordData[w] = newWord('unsorted', 0);
+      WORDS.push(w);
+      added++;
+    }
+  }
+
+  if (added > 0) saveWordData();
+
+  resultDiv.style.display = '';
+  resultDiv.style.color = 'var(--green)';
+  resultDiv.textContent = `Imported ${added} new word${added !== 1 ? 's' : ''}` +
+    (skipped > 0 ? `, ${skipped} already existed` : '') + '.';
+
+  // Clear inputs
+  document.getElementById('import-file').value = '';
+  document.getElementById('import-text').value = '';
+}
+
+// ===== SETTINGS =====
+function openSettings() {
+  const overlay = document.getElementById('settings-modal');
+  overlay.classList.add('open');
+  document.getElementById('rate-slider').value = settings.speechRate;
+  document.getElementById('rate-val').textContent = settings.speechRate.toFixed(2);
+  populateVoiceSelect();
+}
+
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function updateRateLabel() {
+  document.getElementById('rate-val').textContent = parseFloat(document.getElementById('rate-slider').value).toFixed(2);
+}
+
+function populateVoiceSelect() {
+  const sel = document.getElementById('voice-select');
+  const voices = getVoices();
+  const enVoices = voices.filter(v => v.lang.startsWith('en'));
+  sel.innerHTML = enVoices.map(v =>
+    `<option value="${v.voiceURI}"${v.voiceURI === settings.voiceURI ? ' selected' : ''}>${v.name} (${v.lang})</option>`
+  ).join('');
+  if (enVoices.length === 0) {
+    sel.innerHTML = '<option>Loading voices...</option>';
+    setTimeout(populateVoiceSelect, 500);
+  }
+}
+
+function saveSettingsModal() {
+  settings.speechRate = parseFloat(document.getElementById('rate-slider').value);
+  settings.voiceURI = document.getElementById('voice-select').value;
+  saveSettings();
+  closeSettings();
+}
+
+// ===== KEYBOARD =====
+document.addEventListener('keydown', (e) => {
+  if (document.getElementById('settings-modal').classList.contains('open')) return;
+
+  // Handle input fields
+  if (e.target.tagName === 'INPUT' && currentView !== 'sort') {
+    if (currentView === 'quiz') {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (quizState === 'playing') submitAnswer();
+        else if (quizState === 'retry') submitRetry();
+      }
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        if (quizState === 'playing') playCurrentWord();
+      }
+    }
+    if (currentView === 'pending') {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (pendingState === 'playing') submitPendingReview();
+        else if (pendingState === 'retry') submitPendingRetry();
+      }
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        if (pendingState === 'playing') playPendingWord();
+      }
+    }
+    if (currentView === 'drill') {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (drillPhase === 'confirm') submitDrillConfirm();
+        else if (drillPhase === 'memory') submitDrillMemory();
+      }
+    }
+    return;
+  }
+
+  if (currentView === 'sort') {
+    if (e.key === '1') { e.preventDefault(); assignTier(1); }
+    else if (e.key === '2') { e.preventDefault(); assignTier(2); }
+    else if (e.key === '3') { e.preventDefault(); assignTier(3); }
+    else if (e.key === 's' || e.key === 'S') { e.preventDefault(); skipSort(); }
+  }
+
+  if (currentView === 'quiz') {
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      if (quizState === 'playing') playCurrentWord();
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (quizState === 'playing') submitAnswer();
+      else if (quizState === 'feedback-wrong') nextAfterWrong();
+    }
+  }
+
+  if (currentView === 'pending') {
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      if (pendingState === 'playing') playPendingWord();
+    }
+  }
+});
+
+// Auth enter-key handlers
+document.addEventListener('DOMContentLoaded', function() {
+  var lp = document.getElementById('login-password');
+  if (lp) lp.addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+  var lu = document.getElementById('login-username');
+  if (lu) lu.addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+  var sp = document.getElementById('signup-password');
+  if (sp) sp.addEventListener('keydown', function(e) { if (e.key === 'Enter') doSignup(); });
+});
+
+// ===== INIT =====
+const VALID_VIEWS = ['dashboard', 'sort', 'review', 'export', 'import', 'quiz-setup', 'results', 'hopper'];
+
+async function init() {
+  speechSynthesis.onvoiceschanged = () => { voicesLoaded = true; };
+  speechSynthesis.getVoices();
+
+  // Migrate old v1 localStorage keys to namespaced format (for later server migration)
+  migrateOldLocalStorageKeys();
+
+  if (authToken) {
+    try {
+      const session = await api('GET', '/api/auth/session');
+      await loginAs(session.username, session.name);
+      return;
+    } catch(e) {
+      authToken = null;
+      localStorage.removeItem('spbcn_token');
+    }
+  }
+  showView('login');
+}
+
+function migrateOldLocalStorageKeys() {
+  // Migrate pre-auth v1 keys to amirali-namespaced keys (one-time, for localStorage->server migration)
+  const oldWords = localStorage.getItem('spbcn_words');
+  if (!oldWords && !localStorage.getItem('spbcn.assignments.v1')) return;
+
+  const keyMap = {
+    'spbcn_words': 'spbcn.amirali.words',
+    'spbcn_quiz_count': 'spbcn.amirali.quizCount',
+    'spbcn_history': 'spbcn.amirali.history',
+    'spbcn.settings.v1': 'spbcn.amirali.settings',
+    'spbcn.dictCache.v1': 'spbcn.amirali.dictCache',
+    'spbcn.assignments.v1': 'spbcn.amirali.oldAssignments',
+    'spbcn.hopperHighScore.v1': 'spbcn.amirali.hopperHighScore'
+  };
+
+  Object.entries(keyMap).forEach(([oldKey, newKey]) => {
+    const val = localStorage.getItem(oldKey);
+    if (val !== null && !localStorage.getItem(newKey)) {
+      localStorage.setItem(newKey, val);
+      localStorage.removeItem(oldKey);
+    }
+  });
+}
+
+// ===== MINECRAFT UI SOUNDS =====
+let sfxEnabled = localStorage.getItem('spbcn_sfx') !== 'off';
+const mcClickPool = [];
+const MC_POOL_SIZE = 4;
+for (let i = 0; i < MC_POOL_SIZE; i++) {
+  const a = new Audio('mc-click.mp3');
+  a.volume = 0.5;
+  mcClickPool.push(a);
+}
+let mcPoolIdx = 0;
+
+function playMcClick() {
+  if (!sfxEnabled) return;
+  if (currentView === 'quiz') return;
+  const a = mcClickPool[mcPoolIdx];
+  mcPoolIdx = (mcPoolIdx + 1) % MC_POOL_SIZE;
+  a.currentTime = 0;
+  a.play().catch(() => {});
+}
+
+function toggleSfx() {
+  sfxEnabled = !sfxEnabled;
+  localStorage.setItem('spbcn_sfx', sfxEnabled ? 'on' : 'off');
+  updateSfxBtn();
+}
+
+function updateSfxBtn() {
+  const btn = document.getElementById('sfx-toggle');
+  if (!btn) return;
+  btn.textContent = sfxEnabled ? '\u{1F50A}' : '\u{1F507}';
+  btn.title = sfxEnabled ? 'Mute click sounds' : 'Unmute click sounds';
+}
+
+updateSfxBtn();
+
+document.addEventListener('click', function(e) {
+  const t = e.target.closest('button, .btn, .tab-btn, .dash-nav-btn, a[onclick]');
+  if (t) playMcClick();
+}, true);
+
+window.addEventListener('hashchange', () => {
+  const hash = window.location.hash.replace('#', '');
+  if (!currentUser) { showView('login'); return; }
+  if (hash && hash !== currentView && VALID_VIEWS.includes(hash)) {
+    showView(hash);
+  }
+});
+
+// ===== BEEHIVE ANIMATION =====
+(function() {
+  const bhBtn = document.getElementById('bh-bee-btn');
+  const bhFront = document.getElementById('bh-beehive-front');
+  const bhRotate = document.querySelector('.bh-bee-rotate');
+  const bhBody = document.querySelector('.bh-bee-body');
+  if (!bhBtn || !bhFront || !bhRotate || !bhBody) return;
+
+  bhBtn.addEventListener('click', function() {
+    bhFront.classList.toggle('bh-beehive-empty');
+    setTimeout(function() {
+      bhRotate.classList.toggle('bh-hide');
+      bhRotate.classList.toggle('bh-bee-rotation-anim');
+      bhBody.classList.toggle('bh-bee-pathing');
+    }, 400);
+
+    if (bhRotate.classList.contains('bh-paused')) {
+      bhBtn.disabled = true;
+      bhRotate.classList.remove('bh-paused');
+      bhRotate.addEventListener('animationend', function() {
+        bhBtn.disabled = false;
+        setTimeout(function() { bhBtn.click(); }, 400);
+      }, { once: true });
+    } else {
+      bhRotate.classList.toggle('bh-paused');
+    }
+  });
+})();
+
+// ===== SUBWAY SUPER HOPPER =====
+const H_CANVAS_W = 400;
+const H_CANVAS_H = 600;
+const H_LANE_COUNT = 3;
+const H_LANE_W = H_CANVAS_W / H_LANE_COUNT;
+const H_PLAYER_W = 48;
+const H_PLAYER_H = 48;
+const H_PLAYER_Y = H_CANVAS_H - 80;
+const H_GAME_DURATION = 60;
+
+let hopperState = null;
+let hopperAnimFrame = null;
+let hopperHighScore = 0;
+
+const hopperBeeImg = new Image();
+hopperBeeImg.src = 'angry.webp';
+const hopperNestImg = new Image();
+hopperNestImg.src = 'Bee_Nest_%28S%29_JE1.webp';
+
+function laneX(lane) {
+  return lane * H_LANE_W + (H_LANE_W - H_PLAYER_W) / 2;
+}
+
+function startHopper() {
+  const canvas = document.getElementById('hopper-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = H_CANVAS_W;
+  canvas.height = H_CANVAS_H;
+
+  const wordPool = getHopperWords();
+  for (let i = wordPool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [wordPool[i], wordPool[j]] = [wordPool[j], wordPool[i]];
+  }
+
+  hopperState = {
+    lane: 1,
+    obstacles: [],
+    speed: 3,
+    score: 0,
+    timeLeft: H_GAME_DURATION,
+    gameOver: false,
+    startTime: performance.now(),
+    lastSpawn: 0,
+    spawnInterval: 1200,
+    lastTimeTick: performance.now(),
+    ctx: ctx,
+    canvas: canvas,
+    wordPool: wordPool
+  };
+
+  document.getElementById('hopper-start').classList.add('hidden');
+  document.getElementById('hopper-over').classList.add('hidden');
+  document.getElementById('hopper-hud').style.display = '';
+
+  startQuizMusic();
+
+  if (hopperAnimFrame) cancelAnimationFrame(hopperAnimFrame);
+  hopperAnimFrame = requestAnimationFrame(hopperLoop);
+}
+
+function hopperLoop(ts) {
+  const hs = hopperState;
+  if (!hs || hs.gameOver) return;
+
+  const elapsed = (ts - hs.startTime) / 1000;
+  hs.timeLeft = Math.max(0, H_GAME_DURATION - elapsed);
+
+  if (ts - hs.lastTimeTick >= 1000) {
+    hs.lastTimeTick = ts;
+  }
+
+  hs.speed = 3 + Math.floor(elapsed / 10) * 0.8;
+  hs.spawnInterval = Math.max(400, 1200 - Math.floor(elapsed / 10) * 100);
+
+  if (ts - hs.lastSpawn > hs.spawnInterval) {
+    spawnObstacle();
+    hs.lastSpawn = ts;
+  }
+
+  for (let i = hs.obstacles.length - 1; i >= 0; i--) {
+    const ob = hs.obstacles[i];
+    ob.y += hs.speed;
+    if (ob.y > H_CANVAS_H + 60) {
+      hs.obstacles.splice(i, 1);
+      continue;
+    }
+    const nearMiss = ob.lane === hs.lane &&
+      ob.y + ob.h > H_PLAYER_Y - 10 && ob.y + ob.h < H_PLAYER_Y + 5 &&
+      !ob.scored;
+    if (nearMiss) {
+      hs.score += 10;
+      ob.scored = true;
+    }
+    if (ob.lane === hs.lane &&
+        ob.y + ob.h > H_PLAYER_Y &&
+        ob.y < H_PLAYER_Y + H_PLAYER_H) {
+      endHopper();
+      return;
+    }
+  }
+
+  hs.score += 1;
+
+  if (hs.timeLeft <= 0) {
+    endHopper(true);
+    return;
+  }
+
+  drawHopper();
+  updateHopperHUD();
+  hopperAnimFrame = requestAnimationFrame(hopperLoop);
+}
+
+function getHopperWords() {
+  const pool = WORDS.filter(w => {
+    const wd = getWD(w);
+    return wd.tier === 2 || wd.tier === 3;
+  });
+  if (pool.length === 0) return WORDS.slice();
+  return pool;
+}
+
+function spawnObstacle() {
+  const hs = hopperState;
+  const lane = Math.floor(Math.random() * H_LANE_COUNT);
+  const word = hs.wordPool[Math.floor(Math.random() * hs.wordPool.length)];
+  const sz = 56;
+  hs.obstacles.push({
+    lane: lane,
+    y: -sz - 10,
+    w: sz,
+    h: sz,
+    word: word,
+    scored: false
+  });
+}
+
+function drawHopper() {
+  const hs = hopperState;
+  const ctx = hs.ctx;
+  const t = performance.now() / 1000;
+
+  // Sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, H_CANVAS_H);
+  sky.addColorStop(0, '#1a1a40');
+  sky.addColorStop(0.4, '#2a4a2a');
+  sky.addColorStop(1, '#1a3a1a');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, H_CANVAS_W, H_CANVAS_H);
+
+  // Pixel grass strips scrolling
+  const grassOff = (t * 60) % 16;
+  ctx.fillStyle = '#2d5a1e';
+  for (let y = 0; y < H_CANVAS_H; y += 16) {
+    const yy = (y + grassOff) % H_CANVAS_H;
+    ctx.fillRect(0, yy, H_CANVAS_W, 2);
+  }
+
+  // Lane dividers - pixelated dashes
+  ctx.fillStyle = '#3a6a2a';
+  for (let i = 1; i < H_LANE_COUNT; i++) {
+    for (let y = 0; y < H_CANVAS_H; y += 24) {
+      const yy = (y + grassOff * 3) % (H_CANVAS_H + 24);
+      ctx.fillRect(i * H_LANE_W - 2, yy, 4, 12);
+    }
+  }
+
+  // Draw bee nest obstacles
+  for (const ob of hs.obstacles) {
+    const ox = ob.lane * H_LANE_W + (H_LANE_W - ob.w) / 2;
+    if (hopperNestImg.complete && hopperNestImg.naturalWidth > 0) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(hopperNestImg, ox, ob.y, ob.w, ob.h);
+    } else {
+      ctx.fillStyle = '#8a6a20';
+      ctx.fillRect(ox, ob.y, ob.w, ob.h);
+    }
+
+    if (ob.word) {
+      ctx.save();
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 3;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const maxW = H_LANE_W - 12;
+      let fontSize = 10;
+      ctx.font = fontSize + "px 'Press Start 2P', monospace";
+      while (ctx.measureText(ob.word).width > maxW && fontSize > 6) {
+        fontSize--;
+        ctx.font = fontSize + "px 'Press Start 2P', monospace";
+      }
+      ctx.strokeText(ob.word, ox + ob.w / 2, ob.y + ob.h + 4, maxW);
+      ctx.fillText(ob.word, ox + ob.w / 2, ob.y + ob.h + 4, maxW);
+      ctx.restore();
+    }
+  }
+
+  // Draw bee player with bobbing animation
+  const px = laneX(hs.lane);
+  const bobY = Math.sin(t * 6) * 4;
+  if (hopperBeeImg.complete && hopperBeeImg.naturalWidth > 0) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(hopperBeeImg, px, H_PLAYER_Y + bobY, H_PLAYER_W, H_PLAYER_H);
+  } else {
+    ctx.fillStyle = '#ffe040';
+    ctx.fillRect(px, H_PLAYER_Y + bobY, H_PLAYER_W, H_PLAYER_H);
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function updateHopperHUD() {
+  const hs = hopperState;
+  document.getElementById('hopper-score-hud').textContent = 'Score: ' + hs.score;
+  document.getElementById('hopper-time-hud').textContent = 'Time: ' + Math.ceil(hs.timeLeft) + 's';
+}
+
+function endHopper(survived) {
+  const hs = hopperState;
+  hs.gameOver = true;
+  stopQuizMusic();
+  if (hopperAnimFrame) {
+    cancelAnimationFrame(hopperAnimFrame);
+    hopperAnimFrame = null;
+  }
+
+  if (survived) hs.score += 100;
+
+  if (hs.score > hopperHighScore) {
+    hopperHighScore = hs.score;
+    saveHopperHighScore();
+  }
+
+  document.getElementById('hopper-hud').style.display = 'none';
+  document.getElementById('hopper-final-score').textContent = hs.score;
+  document.getElementById('hopper-best').textContent = 'Best: ' + hopperHighScore;
+  document.getElementById('hopper-over').classList.remove('hidden');
+
+  if (survived) {
+    document.querySelector('#hopper-over h2').textContent = 'You Survived!';
+  } else {
+    document.querySelector('#hopper-over h2').textContent = 'Game Over';
+  }
+}
+
+function hopperMoveLane(dir) {
+  if (!hopperState || hopperState.gameOver) return;
+  const newLane = hopperState.lane + dir;
+  if (newLane >= 0 && newLane < H_LANE_COUNT) {
+    hopperState.lane = newLane;
+  }
+}
+
+// Hopper input: keyboard
+document.addEventListener('keydown', function(e) {
+  if (currentView !== 'hopper' || !hopperState || hopperState.gameOver) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); hopperMoveLane(-1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); hopperMoveLane(1); }
+});
+
+// Hopper input: touch swipe
+(function() {
+  let touchStartX = 0;
+  const canvas = document.getElementById('hopper-canvas');
+  if (!canvas) return;
+  canvas.addEventListener('touchstart', function(e) {
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  canvas.addEventListener('touchend', function(e) {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 30) {
+      hopperMoveLane(dx > 0 ? 1 : -1);
+    }
+  }, { passive: true });
+})();
+
+init();
+</script>
+</body>
+</html>
