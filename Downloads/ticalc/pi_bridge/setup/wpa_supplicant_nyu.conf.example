@@ -1,0 +1,28 @@
+# NYU-Legacy WPA2-Enterprise — drop into /etc/wpa_supplicant/wpa_supplicant.conf
+# (or /boot/firmware/wpa_supplicant.conf on first boot) and replace identity/password.
+#
+# Note: Raspberry Pi Imager's "configure wireless LAN" GUI does NOT handle
+# WPA2-Enterprise — it only supports WPA-PSK. So this config has to be placed
+# manually after flashing the SD card.
+
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+country=US
+
+network={
+    ssid="nyu-legacy"
+    key_mgmt=WPA-EAP
+    eap=PEAP
+    identity="<your-NetID>"
+    password="<your-NetID-password>"
+    phase1="peaplabel=0"
+    phase2="auth=MSCHAPV2"
+    priority=1
+}
+
+# Optional fallback (e.g. phone hotspot for setup). Higher priority = tried first.
+# network={
+#     ssid="<hotspot-ssid>"
+#     psk="<hotspot-password>"
+#     priority=2
+# }

@@ -1,0 +1,12 @@
+[Unit]
+Description=TiCalc USB CDC ACM gadget setup
+DefaultDependencies=no
+Before=local-fs.target sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ticalc/setup/usb-gadget.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

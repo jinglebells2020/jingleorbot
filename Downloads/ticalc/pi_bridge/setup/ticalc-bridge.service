@@ -1,0 +1,17 @@
+[Unit]
+Description=TiCalc Pi Bridge — USB CDC server for TI-84 CE
+Wants=network-online.target ticalc-gadget.service
+After=network-online.target ticalc-gadget.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/ticalc.env
+ExecStart=/usr/bin/python3 /opt/ticalc/bridge.py
+WorkingDirectory=/opt/ticalc
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
