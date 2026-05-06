@@ -1,17 +1,31 @@
 [Unit]
 Description=TiCalc Pi Bridge — USB CDC server for TI-84 CE
-Wants=network-online.target ticalc-gadget.service
-After=network-online.target ticalc-gadget.service
+# time-sync.target: Pi Zero has no RTC; without it, system clock is at
+# the epoch on boot and TLS to api.anthropic.com fails ("not yet valid")
+Wants=network-online.target ticalc-gadget.service time-sync.target
+After=network-online.target ticalc-gadget.service time-sync.target
+# Restart with a small backoff window so a crash loop doesn't mask itself
+StartLimitIntervalSec=60
+StartLimitBurst=10
 
 [Service]
-Type=simple
+# notify lets the bridge tell systemd it's ready, and lets us use
+# the kernel-level watchdog (WatchdogSec) — a hung main thread that
+# stops sending WATCHDOG=1 pings will get SIGKILLed and restarted.
+Type=notify
+NotifyAccess=main
+WatchdogSec=30
 EnvironmentFile=/etc/ticalc.env
-ExecStart=/usr/bin/python3 /opt/ticalc/bridge.py
+ExecStart=/opt/ticalc/venv/bin/python /opt/ticalc/bridge.py
 WorkingDirectory=/opt/ticalc
 Restart=always
 RestartSec=3
 StandardOutput=journal
 StandardError=journal
+# Pi Zero 2 W only has 512MB; bound the bridge so a runaway
+# response can't OOM the box. Picamera2 + 4608x2592 buffer +
+# anthropic SDK comfortably fit in 300M.
+MemoryMax=300M
 
 [Install]
 WantedBy=multi-user.target
