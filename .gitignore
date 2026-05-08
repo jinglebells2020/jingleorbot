@@ -1,3 +1,25 @@
 node_modules
 .env
 .superpowers/
+
+# atopile / KiCad build artifacts
+.ato/
+.ruff_cache/
+build/
+
+# KiCad temporary / backup files
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*.kicad_prl
+*-backups/
+_autosave-*
+fp-info-cache
+*-save.kicad_pcb
+*.kicad_pcb.lck
+
+# Autorouter intermediate
+*.dsn
+*.ses
+
+# OS junk
+.DS_Store

@@ -1,0 +1,9 @@
+requires-atopile: "0.15.7"
+
+paths:
+  src: ./elec/src
+  layout: ./elec/layouts
+
+builds:
+  aura:
+    entry: aura.ato:Aura
