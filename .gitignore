@@ -7,6 +7,21 @@ node_modules
 .ruff_cache/
 build/
 
+# SKiDL temp logs in repo root
+/aura.erc
+/aura.log
+/aura_sklib.py
+/skidl.erc
+/skidl.log
+/skidl_REPL.erc
+/skidl_REPL.log
+
+# Python caches + virtualenvs
+__pycache__/
+*.py[cod]
+.venv/
+uv.lock
+
 # KiCad temporary / backup files
 *.kicad_pcb-bak
 *.kicad_sch-bak

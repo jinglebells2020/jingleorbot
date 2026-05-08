@@ -1,0 +1,11 @@
+[project]
+name = "aura-pcb"
+version = "0.1.0"
+description = "AURA EMF-sensing keychain PCB — SKiDL-driven schematic capture"
+requires-python = ">=3.11"
+dependencies = [
+    "skidl>=2.2.3",
+]
+
+[tool.skidl]
+default_tool = "kicad8"
