@@ -1,5 +1,7 @@
 # AURA — Plan 1: Tooling Setup + atopile Schematic Implementation Plan
 
+> **⚠ SUPERSEDED 2026-05-08.** During execution we discovered atopile 0.15.7 has materially different IC declaration patterns than the docs we worked from, and the package registry doesn't yet have the AD8317 / TPS62840 / XIAO module entries we'd need. Pivoted to **SKiDL → KiCad 10 netlist** with a custom `lib/aura.kicad_sym` for the missing ICs. See the Toolchain Amendment in [the spec](../specs/2026-05-08-aura-emf-keychain-pcb-design.md#toolchain-amendment-2026-05-08-post-spec-approval). Execution continues inline (no separate replacement plan document) since the work scope shrank meaningfully — task tracking moved to live todos in the executing-plans session.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up the atopile project scaffold and write the complete schematic-as-code for the AURA keychain device, producing an ERC-clean KiCad netlist plus a BOM with LCSC C-numbers ready for layout work in Plan 2.

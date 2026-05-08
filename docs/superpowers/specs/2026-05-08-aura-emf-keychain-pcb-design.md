@@ -2,10 +2,22 @@
 
 **Date:** 2026-05-08
 **Project:** AURA (codename) — 4-layer rigid PCB, keychain form factor, EMF detector + magnetometer + I²S microphone + e-paper UI + haptic
-**Design tooling:** atopile (schematic-as-code, Python-like) → KiCad 8 (layout)
+**Design tooling:** **SKiDL (Python netlist generator) → KiCad 10 (layout)** — see Toolchain Amendment below
 **Fab target:** JLCPCB JLC04161H-7628 4-layer ENIG, 0.8 mm
-**Working mode:** full generation (Claude produces atopile sources, KiCad project, layout, BOM, design notes; user reviews at phase gates)
-**Scope:** complete schematic + placed/routed/poured layout + 3D STEP + fab outputs
+**Working mode:** full generation (Claude produces SKiDL Python sources, KiCad project skeleton, custom symbols, netlist, BOM, layout, connectivity doc, design notes; user reviews at phase gates)
+**Scope:** complete schematic-equivalent (netlist + connectivity doc, no viewable `.kicad_sch`) + placed/routed/poured layout + 3D STEP + fab outputs
+
+## Toolchain Amendment (2026-05-08, post-spec-approval)
+
+The original spec named atopile as the schematic-as-code tool. During execution we discovered that atopile 0.15.7's IC declaration patterns don't match the older docs we worked from, and the package registry doesn't yet have entries for the AD8317, TPS62840, or XIAO ESP32-C3 module — meaning we'd need to wrangle custom IC declarations against an evolving toolchain. We pivoted to:
+
+**SKiDL** (Python library, mature, KiCad-native) generates a KiCad netlist directly from Python source. Modules from KiCad 10's standard symbol libraries cover most ICs directly (LIS2MDL, TCA9534, DRV2605LDGS, ICS-43434, 2N7002, etc.); two custom symbols are vendored into a project library (`lib/aura.kicad_sym`) for AD8317 and TPS62840, plus the XIAO ESP32-C3 module is modeled as a 14-pin generic connector with named labels.
+
+**No viewable `.kicad_sch`** — the schematic-equivalent is delivered as a comprehensive **connectivity-doc Markdown** that catalogs every net and its endpoints. Pcbnew imports the netlist for layout. The visual design intent lives in this spec's block diagram (§3) and floorplan (§8); review happens against the spec + connectivity doc, not against an eeschema view.
+
+This pivot affects only sections 7 (Schematic hierarchy) and 10 (Phase plan) — every other locked decision (pin map, power tree, RF rules, layout floorplan, antenna design, DRC profile, BOM, risk list) carries through unchanged.
+
+
 
 ---
 
@@ -264,47 +276,50 @@ VNA S11 sweep is **required** on the first prototype build before declaring the 
 
 The XIAO ESP32-C3 has an onboard 2.4 GHz BT/WiFi chip antenna. The AD8317 is broadband 1 MHz – 10 GHz, so its detection path includes the band the XIAO transmits in. **Firmware must time-multiplex** — never sample AD8317 while WiFi/BLE transmission is active. Layout mitigation: orient the XIAO antenna ~180° from the AD8317 antenna (XIAO antenna points right, AD8317 antenna points up-left), but expect ~20 dB residual coupling.
 
-## 7. Schematic hierarchy (atopile)
+## 7. Schematic hierarchy (SKiDL — see Toolchain Amendment)
 
 ```
-aura/
-├── ato.yaml                       # JLCPCB target, parts library reference
+aurapcb/
+├── lib/
+│   └── aura.kicad_sym                 # custom symbols vendored locally:
+│                                       #   - AD8317 (LFCSP-8 RF log detector)
+│                                       #   - TPS62840 (HVSSOP-8 buck)
+│                                       #   - XIAO_ESP32_C3 (14-pad module abstraction)
 ├── elec/
-│   └── src/
-│       ├── aura.ato                   # top-level — wires modules via interfaces
-│       ├── interfaces/
-│       │   ├── i2c.ato                # SDA, SCL, VCC, GND bundle
-│       │   ├── spi.ato                # SCK, MOSI, CS bundle
-│       │   ├── i2s.ato                # BCLK, LRCLK, DIN bundle
-│       │   └── power.ato              # PowerRail (V, GND)
-│       ├── power/
-│       │   ├── battery.ato            # BAT± pads, polyswitch + 0Ω jumper, charger feed
-│       │   ├── buck.ato               # TPS62840 + L1 + caps + Q1 !VBUS gate
-│       │   └── rails.ato              # 3V3_D ↔ FB1 ↔ 3V3_RF declarations
-│       ├── mcu/
-│       │   ├── xiao_c3.ato            # 14-pad castellated module abstraction
-│       │   └── pinmap.ato             # locked D0–D10 net assignments
-│       ├── rf/
-│       │   ├── ad8317.ato             # detector + 100n‖10n‖1n decoupling + RC LPF
-│       │   ├── matching.ato           # CIN 1nF + 52.3Ω shunt + DNP tune stub
-│       │   └── antenna.ato            # meander stub w/ named feed (geometry in KiCad)
-│       ├── sensors/
-│       │   ├── magnetometer.ato       # LIS2MDL @ 0x1E + caps + DRDY routing
-│       │   └── microphone.ato         # ICS-43434 + caps + I2S bundle + L/R-tied-low
-│       ├── haptic/
-│       │   └── drv2605l.ato           # @ 0x5A + LRA pads + ENABLE from expander P7
-│       ├── display/
-│       │   ├── epaper_fpc.ato         # 24-pin FH12-24S-0.5SH + 4 × 1µF boost caps
-│       │   └── epaper_signals.ato     # SPI bundle + DC + RST + CS + BUSY
-│       └── io/
-│           ├── buttons.ato            # 2 × PTS815 + 100n debounce + 1k ESD
-│           ├── battery_monitor.ato    # 200k/200k divider + 100n filter
-│           └── expander.ato           # TCA9534A @ 0x38 + 100n + INT pull-up
-└── layout/
-    └── aura.kicad_pcb                 # generated from netlist; routing + pours hand-tuned
+│   ├── src/
+│   │   ├── __init__.py
+│   │   ├── aura.py                    # top-level — instantiates leaf modules + ERC + netlist gen
+│   │   ├── nets.py                    # named global nets (BAT_PLUS, V3V3_D, V3V3_RF, GND)
+│   │   ├── power/
+│   │   │   ├── battery.py             # BAT± + polyswitch + 0Ω jumper
+│   │   │   ├── buck.py                # TPS62840 + L1 + caps + Q1 !VBUS gate
+│   │   │   └── rails.py               # FB1 split between 3V3_D and 3V3_RF
+│   │   ├── mcu/
+│   │   │   └── xiao_c3.py             # XIAO ESP32-C3 module + pinmap + strap pull-ups
+│   │   ├── rf/
+│   │   │   ├── ad8317.py              # detector + 100n‖10n‖1n decoupling + RC LPF
+│   │   │   └── matching.py            # CIN 1nF + 52.3Ω shunt + DNP tune stub + antenna feed
+│   │   ├── sensors/
+│   │   │   ├── magnetometer.py        # LIS2MDL @ 0x1E + caps + DRDY
+│   │   │   └── microphone.py          # ICS-43434 + caps + I2S routing + L/R-tied-low
+│   │   ├── haptic/
+│   │   │   └── drv2605l.py            # @ 0x5A + LRA pads + ENABLE from expander P7
+│   │   ├── display/
+│   │   │   └── epaper_fpc.py          # 24-pin FH12-24S-0.5SH + 4 × 1µF boost caps
+│   │   └── io/
+│   │       ├── buttons.py             # 2 × PTS815 + 100n debounce + 1k ESD
+│   │       ├── battery_monitor.py     # 200k/200k divider + 100n filter
+│   │       └── expander.py            # TCA9534A @ 0x38 + 100n + INT pull-up
+│   └── build/                          # generated, gitignored
+│       ├── aura.net                    # KiCad netlist (pcbnew imports this)
+│       ├── aura_bom.csv                # BOM with LCSC C-numbers
+│       └── aura_connectivity.md        # human-reviewable net catalog (per-net endpoint listing)
+├── layout/
+│   └── aura.kicad_pcb                  # imported from aura.net; routing + pours hand-tuned
+└── pyproject.toml                      # uv-managed Python deps (skidl)
 ```
 
-The top-level `aura.ato` is wires-only — every component decision lives in its leaf module so review can happen file-by-file. Interfaces enforce typed connections (an I²C bundle can only mate with another I²C bundle, etc.).
+Each leaf `.py` module exports a single function `build()` that takes the named global nets it needs and instantiates the components. `aura.py` calls all of them, then runs SKiDL's `ERC()` (electrical rules check), `generate_netlist()`, `generate_bom()`, and a custom `generate_connectivity_doc()` that walks the net graph and writes a per-net endpoint table to Markdown for human review.
 
 ## 8. Layout floorplan
 
@@ -374,25 +389,27 @@ L4 has GND fill everywhere except the antenna keep-out. Battery and LRA pads rou
 | **DECOUP** | All decoupling caps within 2 mm of their IC's power pin (AD8317 VPOS within 1 mm) |
 | **PROCESS** | All ICs in non-BGA packages (largest is LFCSP-8 + LGA-12); no QFN smaller than 3 mm |
 
-## 10. Phase plan
+## 10. Phase plan (revised under Toolchain Amendment)
 
 | # | Phase | Deliverable | Gate |
 |---|---|---|---|
-| **P0** | Tooling setup | atopile + KiCad 8 installed, project scaffolded, JLCPCB DRC profile saved, footprints verified | env sanity check |
-| **P1** | Schematic (atopile) | all `.ato` files written, ERC clean, KiCad netlist generated, BOM with LCSC C-numbers generated | **Gate A**: schematic walk-through, BOM/MPN review |
-| **P2** | KiCad bootstrap | KiCad project, stack-up configured, DRC profile loaded, netlist imported, footprints verified, board outline + mech features placed | sanity check |
+| **P0** | Tooling setup | `uv`, `skidl`, KiCad 10 verified; project scaffold; custom symbol library `lib/aura.kicad_sym` with AD8317, TPS62840, XIAO_ESP32_C3 | env sanity check |
+| **P1** | SKiDL schematic | All `elec/src/**/*.py` modules written, `ERC()` clean, `aura.net` (KiCad netlist) + `aura_bom.csv` + `aura_connectivity.md` generated | **Gate A**: connectivity-doc walk-through, BOM/MPN review |
+| **P2** | KiCad bootstrap | KiCad project, JLC04161H-7628 stackup configured, DRC profile loaded, netlist imported, footprints verified, board outline + mech features placed | sanity check |
 | **P3** | Placement | all components placed per §8 floorplan, LIS2MDL clearance verified, MEMS port aligned, XIAO antenna oriented | **Gate B**: 3D preview review against enclosure CAD |
 | **P4** | Routing | RF chain first, then VOUT signal, I²C, SPI, I²S, power (tight buck loop), control. No vias in RF path. | sub-checkpoint after RF + power |
 | **P5** | Pours + stitching | L2 GND uninterrupted under RF; L3 power islands w/ FB1 single-point join; L4 GND with antenna keep-out preserved; perimeter + RF stitching | **Gate C**: copper review, antenna keep-out audit on all 4 layers |
 | **P6** | Outputs + verification | DRC = 0 errors, 3D STEP, Gerbers + Excellon drill, CPL, final BOM with alternates, design-notes.md (pin map, antenna tuning notes, populate order, known risks) | **Gate D**: pre-fab review — user submits to JLCPCB |
 
 Practical setup notes (P0):
-- atopile installs via `uv tool install atopile` (or `pip install atopile`)
-- XIAO ESP32-C3 footprint: vendor a copy of Seeed's KiCad library into the project for reproducibility
-- LFCSP-8 (AD8317): verify exposed pad dimensions against ADI datasheet section 11
-- FH12-24S-0.5SH (FPC): verify pin 1 orientation against e-paper module datasheet
+- `uv tool install skidl` installs SKiDL into a uv-managed venv
+- `KICAD8_SYMBOL_DIR=/Applications/KiCad/KiCad.app/Contents/SharedSupport/symbols` env var lets SKiDL find KiCad 10's symbol libraries (KiCad 8 → 10 symbol format is forward-compatible)
+- KiCad standard libraries cover: LIS2MDL (Sensor_Magnetic), TCA9534 (Interface_Expansion), DRV2605LDGS (Driver), ICS-43434 (Sensor_Audio), 2N7002 (Transistor_FET), Polyfuse + L + FerriteBead_Small (Device), Conn_01x24 (Connector_Generic), SW_Push (Switch)
+- Custom symbols vendored in `lib/aura.kicad_sym`: **AD8317** (no KiCad standard symbol; only AD8313 is similar), **TPS62840** (KiCad standard has TPS62823/62836/62842 but not 62840), **XIAO_ESP32_C3** (modeled as 14-pin connector with named labels matching XIAO silkscreen — bare ESP32-C3-WROOM-02 from MCU_Espressif library is a different abstraction level)
+- LFCSP-8 (AD8317) footprint: KiCad's `Package_DFN_QFN:LFCSP-8-1EP_3x2mm_P0.5mm_EP1.6x1.4mm` — verify against ADI datasheet section 11
+- FH12-24S-0.5SH (FPC): KiCad's `Connector_FFC-FPC:Hirose_FH12-24S-0.5SH_1x24-1MP_P0.50mm_Horizontal` — verify pin 1 orientation against e-paper module datasheet
 
-Effort estimate (W1, full generation): P1 ~1–2 days, P2 ~½ day, P3 ~1 day, P4 ~2–3 days (RF rules), P5 ~1 day, P6 ~½ day. **Realistic total: 1–2 weeks** of focused build, plus user review time at each gate.
+Effort estimate (W1, agent-driven through P1; mixed agent + KiCad GUI through P2–P6): P1 ~1 session of agent work (this Plan 1), P2 ~½ day, P3 ~1 day, P4 ~2–3 days (RF rules), P5 ~1 day, P6 ~½ day. **Realistic total from this point: 1 week of layout work** after Plan 1 lands.
 
 ## 11. Hand-assembly notes
 
