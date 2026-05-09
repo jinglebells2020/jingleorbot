@@ -70,7 +70,63 @@ cmd_status() {
   printf '  %-20s %s\n' 'ticalc-gadget:' "$(systemctl is-active ticalc-gadget 2>&1)"
 }
 
-cmd_apply()    { echo "TODO: implement apply"   >&2; exit 2; }
+mask_unit() {
+  # Idempotent mask + stop. Silent no-op if the unit doesn't exist.
+  local u=$1
+  if systemctl list-unit-files --no-legend "$u" "$u.service" 2>/dev/null | grep -q .; then
+    systemctl mask --now "$u" >/dev/null 2>&1 || true
+  fi
+}
+
+apt_install_iw() {
+  if ! command -v iw >/dev/null; then
+    apt-get update -qq
+    apt-get install -y iw
+  fi
+}
+
+cmd_apply() {
+  require_root
+
+  echo '==> Stage 1/5: mask desktop (lightdm + cascade)'
+  mask_unit lightdm
+
+  echo '==> Stage 2/5: disable Bluetooth — dt-overlay deferred (Task 3)'
+  mask_unit bluetooth
+  mask_unit hciuart
+
+  echo '==> Stage 3/5: disable audio — dtparam deferred (Task 3)'
+  mask_unit alsa-state
+
+  echo '==> Stage 4/5: mask cruft services'
+  mask_unit nfs-blkmap
+  mask_unit rpcbind
+  mask_unit avahi-daemon
+
+  echo '==> Stage 5/5: WiFi powersave + drop swap'
+  local conn
+  conn=$(active_wifi_conn || true)
+  if [ -n "${conn:-}" ]; then
+    nmcli c modify "$conn" wifi.powersave 3
+    echo "    wifi.powersave=3 set on '$conn' (active after reboot)"
+  else
+    echo '    no active wifi connection; skipping powersave set'
+  fi
+  swapoff -a 2>/dev/null || true
+  mask_unit dphys-swapfile
+
+  echo '==> Bonus: install iw'
+  apt_install_iw
+
+  echo
+  if [ "$NEEDS_REBOOT" = 1 ]; then
+    echo 'REBOOT REQUIRED for stages 2 (BT) and 3 (audio).'
+    echo 'Run:  sudo reboot'
+  else
+    echo 'Done — Task 3 will add the reboot-requiring changes.'
+  fi
+}
+
 cmd_rollback() { echo "TODO: implement rollback" >&2; exit 2; }
 
 case "${1:-status}" in
