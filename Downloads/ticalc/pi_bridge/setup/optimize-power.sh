@@ -109,6 +109,17 @@ mask_unit() {
   fi
 }
 
+unmask_unit() {
+  # Idempotent unmask. Start is --no-block: graphical units like lightdm can
+  # block synchronous starts indefinitely on a headless Pi, and we don't need
+  # to wait for them anyway — next reboot or systemd's own retry handles it.
+  local u=$1
+  if systemctl list-unit-files --no-legend "$u" "$u.service" 2>/dev/null | grep -q .; then
+    systemctl unmask "$u" >/dev/null 2>&1 || true
+    systemctl start --no-block "$u" >/dev/null 2>&1 || true
+  fi
+}
+
 apt_install_iw() {
   if ! command -v iw >/dev/null; then
     apt-get update -qq
@@ -160,7 +171,42 @@ cmd_apply() {
   fi
 }
 
-cmd_rollback() { echo "TODO: implement rollback" >&2; exit 2; }
+cmd_rollback() {
+  require_root
+
+  echo '==> Rolling back stage 1: unmask lightdm'
+  unmask_unit lightdm
+
+  echo '==> Rolling back stage 2: re-enable Bluetooth'
+  remove_config_line 'dtoverlay=disable-bt'
+  unmask_unit bluetooth
+  unmask_unit hciuart
+
+  echo '==> Rolling back stage 3: re-enable audio'
+  set_audio_param on
+  unmask_unit alsa-state
+
+  echo '==> Rolling back stage 4: re-enable cruft services'
+  unmask_unit nfs-blkmap
+  unmask_unit rpcbind
+  unmask_unit avahi-daemon
+
+  echo '==> Rolling back stage 5: WiFi default + swap'
+  local conn
+  conn=$(active_wifi_conn || true)
+  if [ -n "${conn:-}" ]; then
+    nmcli c modify "$conn" wifi.powersave 2
+  fi
+  unmask_unit dphys-swapfile
+  swapon -a 2>/dev/null || true
+
+  echo
+  if [ "$NEEDS_REBOOT" = 1 ]; then
+    echo 'REBOOT REQUIRED to re-enable BT/audio drivers.'
+  else
+    echo 'Done — services back online.'
+  fi
+}
 
 case "${1:-status}" in
   apply)    cmd_apply ;;
