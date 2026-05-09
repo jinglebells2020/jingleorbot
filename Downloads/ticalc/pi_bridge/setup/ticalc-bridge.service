@@ -9,12 +9,11 @@ StartLimitIntervalSec=60
 StartLimitBurst=10
 
 [Service]
-# notify lets the bridge tell systemd it's ready, and lets us use
-# the kernel-level watchdog (WatchdogSec) — a hung main thread that
-# stops sending WATCHDOG=1 pings will get SIGKILLed and restarted.
-Type=notify
-NotifyAccess=main
-WatchdogSec=30
+# Plain Type=simple. We previously used Type=notify with WatchdogSec
+# but the watchdog ping kept failing silently and killing healthy
+# bridges mid-request. Reliability of the watchdog is worse than
+# without it on this platform.
+Type=simple
 EnvironmentFile=/etc/ticalc.env
 ExecStart=/opt/ticalc/venv/bin/python /opt/ticalc/bridge.py
 WorkingDirectory=/opt/ticalc
@@ -22,10 +21,10 @@ Restart=always
 RestartSec=3
 StandardOutput=journal
 StandardError=journal
-# Pi Zero 2 W only has 512MB; bound the bridge so a runaway
-# response can't OOM the box. Picamera2 + 4608x2592 buffer +
-# anthropic SDK comfortably fit in 300M.
-MemoryMax=300M
+# Pi Zero 2 W has 512MB. Picamera2 + 4608x2592 DMA buffers + httpx
+# streaming + anthropic SDK can easily push past 300M during a photo
+# request. Cap at 400M to leave the kernel breathing room.
+MemoryMax=400M
 
 [Install]
 WantedBy=multi-user.target

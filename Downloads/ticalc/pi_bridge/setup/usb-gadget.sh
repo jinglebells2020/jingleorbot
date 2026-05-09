@@ -37,7 +37,13 @@ echo 250                  > configs/c.1/MaxPower
 mkdir -p functions/acm.usb0
 ln -s functions/acm.usb0 configs/c.1/
 
-# Bind to the first USB device controller available
-ls /sys/class/udc | head -1 > UDC
-
-echo "ticalc gadget bound to: $(cat UDC)"
+# Bind to the first USB device controller available. Fail loud if none —
+# silently writing an empty UDC value "succeeds" but produces no
+# /dev/ttyGS0, then the bridge spins forever in open_tty's retry loop.
+UDC_DEV="$(ls /sys/class/udc 2>/dev/null | head -1)"
+if [ -z "$UDC_DEV" ]; then
+    echo "ERROR: no UDC available — check 'dtoverlay=dwc2,dr_mode=peripheral' is under [all] in /boot/firmware/config.txt and dwc2 module is loaded" >&2
+    exit 1
+fi
+echo "$UDC_DEV" > UDC
+echo "ticalc gadget bound to: $UDC_DEV"

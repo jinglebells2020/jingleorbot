@@ -25,6 +25,7 @@ import base64
 import select
 import socket
 import string
+import tempfile
 import threading
 from io import BytesIO
 from datetime import datetime
@@ -207,89 +208,51 @@ def eval_local(expr: str) -> str:
         return "ERR"
 
 
-# ── Camera (lazy init, idle release, watchdog) ───────────────────────
-_CAMERA_IDLE_S = 30.0   # release camera after this many seconds idle
+# ── Camera (subprocess to rpicam-still) ──────────────────────────────
+# Why subprocess instead of Picamera2 in-process:
+#  - Picamera2 forks an IPA helper child which inherits our NOTIFY_SOCKET
+#    and (in some libcamera versions) interferes with Type=notify in ways
+#    that cause our parent process to exit with status 0 mid-capture.
+#  - Each rpicam-still call is a clean fresh process. Slightly slower
+#    (~500ms cold start) but rock solid.
+import subprocess
 _CAPTURE_TIMEOUT_S = 15.0
 
-_camera = None
-_camera_lock = threading.Lock()
-_camera_last_used = 0.0
-
-def _close_camera_locked():
-    """Caller must hold _camera_lock."""
-    global _camera
-    if _camera is not None:
-        try: _camera.stop()
-        except Exception as e: log(f"camera stop: {e}")
-        try: _camera.close()
-        except Exception as e: log(f"camera close: {e}")
-        _camera = None
-
-def _ensure_camera_locked():
-    global _camera
-    if _camera is None:
-        from picamera2 import Picamera2
-        from libcamera import controls
-        _camera = Picamera2()
-        config = _camera.create_still_configuration(
-            main={"size": (4608, 2592)},
-            buffer_count=1,
-        )
-        _camera.configure(config)
-        _camera.set_controls({
-            "AfMode": controls.AfModeEnum.Continuous,
-            "AfSpeed": controls.AfSpeedEnum.Fast,
-        })
-        _camera.start()
-        time.sleep(0.8)
-
-def _do_capture_blocking() -> bytes:
-    from libcamera import controls
-    try:
-        _camera.set_controls({"AfTrigger": controls.AfTriggerEnum.Start})
-        time.sleep(0.6)
-    except Exception:
-        pass
-    bio = BytesIO()
-    _camera.capture_file(bio, format="jpeg")
-    return bio.getvalue()
-
 def capture_jpeg() -> bytes:
-    """Watchdogged JPEG capture. Holds camera lock for the whole operation
-    so the idle-releaser can't yank it mid-shot."""
-    global _camera_last_used
-    result = {}
-    def worker():
-        try:
-            result["data"] = _do_capture_blocking()
-        except BaseException as e:
-            result["err"] = e
-
-    with _camera_lock:
-        _ensure_camera_locked()
-        t = threading.Thread(target=worker, daemon=True)
-        t.start()
-        t.join(_CAPTURE_TIMEOUT_S)
-        if t.is_alive():
-            log("capture timeout, killing camera")
-            _close_camera_locked()  # forces the worker thread to error out
-            t.join(2.0)
-            raise RuntimeError("camera timeout")
-        if "err" in result:
-            _close_camera_locked()
-            raise result["err"]
-        _camera_last_used = time.monotonic()
-        return result["data"]
+    """Capture a JPEG using rpicam-still in a subprocess. Returns JPEG bytes.
+    Uses a unique tempfile per call so concurrent captures don't clobber
+    each other (handle_cmd dispatches requests onto worker threads)."""
+    fd, path = tempfile.mkstemp(prefix="ticalc_capture_", suffix=".jpg", dir="/tmp")
+    os.close(fd)
+    try:
+        cmd = [
+            "rpicam-still",
+            "-o", path,
+            "--width", "4608", "--height", "2592",
+            "--autofocus-mode", "auto",
+            "--autofocus-on-capture",
+            "-t", "2500",
+            "-n",
+        ]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=_CAPTURE_TIMEOUT_S,
+            check=False,
+        )
+        if proc.returncode != 0 or not (os.path.exists(path) and os.path.getsize(path) > 0):
+            tail = proc.stderr.decode("utf-8", errors="replace")[-200:]
+            raise RuntimeError(f"rpicam-still failed: {tail}")
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        try: os.unlink(path)
+        except FileNotFoundError: pass
 
 def _camera_releaser_loop():
-    """Closes the camera if it's been idle past _CAMERA_IDLE_S."""
+    """Stub kept for thread compatibility — subprocess capture has no state."""
     while True:
-        time.sleep(5.0)
-        with _camera_lock:
-            if _camera is not None and \
-               time.monotonic() - _camera_last_used > _CAMERA_IDLE_S:
-                log(f"camera idle >{_CAMERA_IDLE_S:.0f}s, releasing")
-                _close_camera_locked()
+        time.sleep(60)
 
 
 # ── Status LED (onboard ACT, falls back to silent if no perms) ───────
@@ -327,7 +290,10 @@ def _led_loop():
         with _led_state_lock:
             s = _led_state
         if s == "busy":
-            _led_set(True); time.sleep(0.5)
+            # fast pulse so 3am-glance knows the bridge is alive AND
+            # working on something (vs. solid-on which could mean wedged)
+            _led_set(True); time.sleep(0.15)
+            _led_set(False); time.sleep(0.15)
         elif s == "error":
             for _ in range(3):
                 _led_set(True); time.sleep(0.1)
@@ -435,7 +401,10 @@ def _send_to_agent_once(content: list) -> str:
 def send_to_agent(image_bytes: bytes | None, question: str,
                   status_cb=None) -> str:
     """Send a turn to the agent, return cleaned text answer.
-    Retries once on transient errors (network blip / 5xx / rate limit)."""
+    Retries once on transient errors (network blip / 5xx / rate limit).
+    On any failure, drops the current session so the next call gets a
+    fresh one — a corrupted server-side session would otherwise lock
+    the bridge into perpetual failure."""
     content = []
     if image_bytes:
         content.append({
@@ -449,17 +418,27 @@ def send_to_agent(image_bytes: bytes | None, question: str,
     content.append({"type": "text", "text": question or "Solve this."})
 
     if status_cb: status_cb("WAITING")
-    last_err = None
-    for attempt in (1, 2):
-        try:
-            return clean_response(_send_to_agent_once(content))
-        except _RETRYABLE as e:
-            last_err = e
-            log(f"API attempt {attempt} failed ({type(e).__name__}); "
-                f"{'retrying in 2s' if attempt == 1 else 'giving up'}")
-            if attempt == 1:
-                time.sleep(2.0)
-    raise last_err
+    try:
+        last_err = None
+        for attempt in (1, 2):
+            try:
+                return clean_response(_send_to_agent_once(content))
+            except _RETRYABLE as e:
+                last_err = e
+                log(f"API attempt {attempt} failed ({type(e).__name__}); "
+                    f"{'retrying in 2s' if attempt == 1 else 'giving up'}")
+                if attempt == 1:
+                    time.sleep(2.0)
+        raise last_err
+    except Exception:
+        # Drop session — next ensure_session() will create a fresh one.
+        # Covers session.error events, repeated retryable failures, and
+        # anything else (e.g. SDK validation errors against a stale sid).
+        old_sid = state.session_id
+        state.session_id = None
+        if old_sid:
+            log(f"cleared session {old_sid} after error")
+        raise
 
 
 # ── USB CDC IO helpers ───────────────────────────────────────────────
@@ -493,9 +472,10 @@ def reply(msg: str):
             _tty.write(line)
             _tty.flush()
         except BlockingIOError:
-            # Kernel CDC buffer full or host not reading — drop silently.
-            # Either calc is unplugged or it'll catch up on the next poll.
-            pass
+            # Kernel CDC buffer full or host not reading. We log so 3am
+            # debug shows missed status updates / DONE / FAIL replies —
+            # those drops cause the calc to read stale state next poll.
+            log(f"reply dropped (kernel buffer full): {msg[:40]}")
         except Exception as e:
             log(f"reply failed: {e}")
 
@@ -554,6 +534,25 @@ def do_ask(question: str, with_photo: bool):
         set_led("error")
 
 
+# Tracks whether an ASK/ASKPHOTO is in flight. We dispatch those onto a
+# worker thread so the read loop stays responsive (PING/GET/LINES/LINE n
+# can be answered while a long-running request is pending). A second
+# concurrent request gets BUSY rather than queueing — the calc UI is
+# single-shot anyway.
+_request_in_flight = threading.Lock()
+
+def _spawn_ask(question: str, with_photo: bool):
+    if not _request_in_flight.acquire(blocking=False):
+        reply("BUSY")
+        return
+    def worker():
+        try:
+            do_ask(question, with_photo)
+        finally:
+            _request_in_flight.release()
+    threading.Thread(target=worker, daemon=True, name="req").start()
+
+
 def handle_cmd(cmd: str):
     cmd = cmd.strip()
     if not cmd:
@@ -571,13 +570,16 @@ def handle_cmd(cmd: str):
         except ValueError:
             reply("")
             return
-        reply(state.lines[idx] if 0 <= idx < len(state.lines) else "")
+        # Snapshot to avoid index-out-of-range if the worker thread
+        # rebinds state.lines between the bounds check and the read.
+        lines = state.lines
+        reply(lines[idx] if 0 <= idx < len(lines) else "")
     elif cmd.startswith("EVAL "):
         do_eval(cmd[5:])
     elif cmd.startswith("ASKPHOTO "):
-        do_ask(cmd[9:], with_photo=True)
+        _spawn_ask(cmd[9:], with_photo=True)
     elif cmd.startswith("ASK "):
-        do_ask(cmd[4:], with_photo=False)
+        _spawn_ask(cmd[4:], with_photo=False)
     else:
         log(f"unknown command: {cmd!r}")
 

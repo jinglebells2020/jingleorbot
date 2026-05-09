@@ -1,12 +1,19 @@
 [Unit]
 Description=TiCalc USB CDC ACM gadget setup
-DefaultDependencies=no
-Before=local-fs.target sysinit.target
+# Need /sys (sysfs) and /lib/modules accessible (for libcomposite if it's
+# a module). local-fs.target gets us mounted filesystems; sys-kernel-config
+# ensures /sys/kernel/config (configfs) is mounted before the script runs.
+After=local-fs.target sys-kernel-config.mount
+Requires=sys-kernel-config.mount
 
 [Service]
 Type=oneshot
 ExecStart=/opt/ticalc/setup/usb-gadget.sh
 RemainAfterExit=yes
+# A failure here means /dev/ttyGS0 won't appear; better to restart so
+# transient races on boot get retried than to leave the bridge spinning.
+Restart=on-failure
+RestartSec=2
 
 [Install]
-WantedBy=sysinit.target
+WantedBy=multi-user.target
