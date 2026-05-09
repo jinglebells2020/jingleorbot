@@ -74,3 +74,24 @@ Reboot. The bridge should auto-start on boot, register itself as a USB CDC devic
 | `GET` | `>` + last status string |
 
 Status updates during AI request: `S:CAMERA`, `S:WIFI`, `S:UPLOAD`, `S:WAITING`, `DONE`, `FAIL[:reason]`.
+
+## Battery / power optimization
+
+For battery (LiPo) operation, run on the Pi as root:
+
+```bash
+sudo ./setup/optimize-power.sh apply
+sudo reboot
+```
+
+This masks the desktop env (lightdm + cascade), disables Bluetooth and
+audio at the device-tree level, masks `nfs-blkmap` / `rpcbind` /
+`avahi-daemon`, enables WiFi powersave, and drops swap. Calc-side
+behavior is unchanged. Reverse with `sudo ./setup/optimize-power.sh
+rollback && sudo reboot`. Inspect current state at any time with
+`sudo ./setup/optimize-power.sh status`.
+
+A/B-measure runtime from the Mac with `./setup/runtime-test.sh <pi-ip>
+<label>` — polls SSH and writes a CSV row when the Pi powers off.
+
+Design notes: `docs/superpowers/specs/2026-05-09-pi-battery-optimization-design.md`.
