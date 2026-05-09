@@ -70,6 +70,37 @@ cmd_status() {
   printf '  %-20s %s\n' 'ticalc-gadget:' "$(systemctl is-active ticalc-gadget 2>&1)"
 }
 
+ensure_config_line() {
+  # Append a line to config.txt if it isn't already present anywhere in the file.
+  local line=$1
+  if ! grep -qxF "$line" "$CONFIG_TXT"; then
+    printf '%s\n' "$line" >> "$CONFIG_TXT"
+    NEEDS_REBOOT=1
+  fi
+}
+
+remove_config_line() {
+  local line=$1
+  if grep -qxF "$line" "$CONFIG_TXT"; then
+    sed -i "\|^$(printf '%s' "$line" | sed 's|[][\.*^$/]|\\&|g')\$|d" "$CONFIG_TXT"
+    NEEDS_REBOOT=1
+  fi
+}
+
+set_audio_param() {
+  # Flips dtparam=audio=on/off in place. Idempotent.
+  local target=$1   # on | off
+  local current
+  current=$(grep -m1 '^dtparam=audio=' "$CONFIG_TXT" | cut -d= -f3 || true)
+  if [ -z "$current" ]; then
+    printf 'dtparam=audio=%s\n' "$target" >> "$CONFIG_TXT"
+    NEEDS_REBOOT=1
+  elif [ "$current" != "$target" ]; then
+    sed -i "s/^dtparam=audio=$current\$/dtparam=audio=$target/" "$CONFIG_TXT"
+    NEEDS_REBOOT=1
+  fi
+}
+
 mask_unit() {
   # Idempotent mask + stop. Silent no-op if the unit doesn't exist.
   local u=$1
@@ -91,11 +122,13 @@ cmd_apply() {
   echo '==> Stage 1/5: mask desktop (lightdm + cascade)'
   mask_unit lightdm
 
-  echo '==> Stage 2/5: disable Bluetooth — dt-overlay deferred (Task 3)'
+  echo '==> Stage 2/5: disable Bluetooth (dt-overlay + mask)'
+  ensure_config_line 'dtoverlay=disable-bt'
   mask_unit bluetooth
   mask_unit hciuart
 
-  echo '==> Stage 3/5: disable audio — dtparam deferred (Task 3)'
+  echo '==> Stage 3/5: disable audio (dtparam=off + mask)'
+  set_audio_param off
   mask_unit alsa-state
 
   echo '==> Stage 4/5: mask cruft services'
