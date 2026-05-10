@@ -231,7 +231,11 @@ def capture_jpeg() -> bytes:
             "--width", "4608", "--height", "2592",
             "--autofocus-mode", "auto",
             "--autofocus-on-capture",
-            "-t", "2500",
+            "--autofocus-range", "normal",  # 10 cm – infinity; covers all calc use cases
+            # -t is the preview duration BEFORE shutter; AF must converge inside it.
+            # 2500 ms was too short and shutter fired mid-sweep → blurry. 4000 ms
+            # gives the IMX708's contrast-detect AF time to settle.
+            "-t", "4000",
             "-n",
         ]
         proc = subprocess.run(
