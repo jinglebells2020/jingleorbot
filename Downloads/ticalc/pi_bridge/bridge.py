@@ -229,13 +229,23 @@ def capture_jpeg() -> bytes:
             "rpicam-still",
             "-o", path,
             "--width", "4608", "--height", "2592",
-            "--autofocus-mode", "auto",
+            # Continuous AF — motor tracks the subject through the whole
+            # preview, so handheld motion / subject drift can't lock us on a
+            # stale focus.
+            "--autofocus-mode", "continuous",
+            # Final AF cycle right before the shutter fires.
             "--autofocus-on-capture",
-            "--autofocus-range", "normal",  # 10 cm – infinity; covers all calc use cases
-            # -t is the preview duration BEFORE shutter; AF must converge inside it.
-            # 2500 ms was too short and shutter fired mid-sweep → blurry. 4000 ms
-            # gives the IMX708's contrast-detect AF time to settle.
-            "-t", "4000",
+            # Full lens range — covers near (textbook close-ups) AND far
+            # (desk surface). Don't restrict to macro: PDAF can stall at the
+            # range boundary if the subject is even slightly outside.
+            "--autofocus-range", "full",
+            # NB: do NOT set --autofocus-window. The default (whole frame) was
+            # what worked in early tests — restricting to a center window
+            # missed the subject when text was off-center.
+            # NB: do NOT set --shutter or --gain. Let AE auto-pick; manually
+            # capping shutter blew out bright scenes earlier.
+            # 5 s of preview gives continuous AF time to converge.
+            "-t", "5000",
             "-n",
         ]
         proc = subprocess.run(
@@ -248,10 +258,19 @@ def capture_jpeg() -> bytes:
             tail = proc.stderr.decode("utf-8", errors="replace")[-200:]
             raise RuntimeError(f"rpicam-still failed: {tail}")
         with open(path, "rb") as f:
-            return f.read()
+            data = f.read()
+        # Keep a copy of the most recent capture for debugging (overwritten each
+        # call). Lives on tmpfs so no SD wear.
+        try:
+            os.replace(path, "/tmp/ticalc_last_capture.jpg")
+            path = None  # don't unlink in finally
+        except OSError:
+            pass
+        return data
     finally:
-        try: os.unlink(path)
-        except FileNotFoundError: pass
+        if path:
+            try: os.unlink(path)
+            except FileNotFoundError: pass
 
 def _camera_releaser_loop():
     """Stub kept for thread compatibility — subprocess capture has no state."""
