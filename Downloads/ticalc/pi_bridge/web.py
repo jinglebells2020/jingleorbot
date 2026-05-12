@@ -354,7 +354,7 @@ body {
   grid-template-rows: auto auto 1fr auto;
   gap: 12px;
   padding: 14px;
-  background-image: radial-gradient(rgba(76, 201, 240, 0.06) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(76, 201, 240, 0.11) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 
@@ -421,11 +421,31 @@ button:hover { border-color: var(--cyan); color: var(--cyan); }
 button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 button.primary { background: var(--cyan); color: #03121b; border-color: var(--cyan); font-weight: 600; }
 button.primary:hover { color: #03121b; background: #6fd6f3; }
-button.capture { background: var(--cyan); color: #03121b; border-color: var(--cyan); font-weight: 600; }
+button.capture {
+  background: var(--cyan); color: #03121b; border-color: var(--cyan); font-weight: 600;
+  min-width: 220px; text-align: center;
+}
 button.capture:hover { color: #03121b; background: #6fd6f3; }
 button.capture.busy { background: var(--amber); border-color: var(--amber); color: #1a1108; }
 button.capture.done { background: var(--green); border-color: var(--green); color: #03150a; }
-button:disabled { opacity: 0.65; cursor: progress; }
+button.capture:disabled,
+button.capture.disarmed {
+  background: var(--bg-raised);
+  color: var(--muted);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+button.snap {
+  background: var(--bg-raised); color: var(--cyan); border-color: var(--cyan); font-weight: 500;
+  min-width: 120px; text-align: center;
+}
+button.snap:hover { background: rgba(76, 201, 240, 0.10); color: var(--cyan); }
+button.snap:disabled {
+  background: var(--bg-raised); color: var(--muted); border-color: var(--border);
+  cursor: not-allowed;
+}
+button.primary { min-width: 150px; text-align: center; }
+button:disabled { opacity: 0.65; cursor: not-allowed; }
 
 /* Layout grid */
 .row { display: grid; grid-template-columns: 1fr 320px; gap: 12px; min-height: 0; }
@@ -504,17 +524,16 @@ button:disabled { opacity: 0.65; cursor: progress; }
 }
 #log .line {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: 72px 70px 1fr;
   align-items: baseline;
   gap: 10px;
   padding: 2px 0;
-  white-space: pre-wrap;
-  word-break: break-word;
   border-left: 2px solid transparent;
   padding-left: 8px;
   margin-left: -8px;
   transition: border-color 600ms ease-out, background 600ms ease-out;
 }
+#log .line .m { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
 #log .line.fresh {
   border-left-color: var(--cyan);
   background: rgba(76, 201, 240, 0.06);
@@ -527,15 +546,15 @@ button:disabled { opacity: 0.65; cursor: progress; }
 }
 #log .s {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 1px 7px;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   background: rgba(255, 255, 255, 0.04);
   color: var(--muted);
-  min-width: 50px;
   text-align: center;
+  justify-self: start;
 }
 #log .s.cam    { color: var(--cyan);     background: rgba(76, 201, 240, 0.10); }
 #log .s.net    { color: var(--ibm-blue); background: rgba(69, 137, 255, 0.10); }
@@ -657,52 +676,28 @@ button:disabled { opacity: 0.65; cursor: progress; }
 }
 .vital {
   position: relative;
-  padding: 14px 16px 12px;
+  padding: 14px 16px 14px;
+  isolation: isolate;
+  --vital-edge: var(--border);
+}
+.vital::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: var(--vital-edge);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  z-index: -2;
+  transition: background 180ms ease-out;
+}
+.vital::after {
+  content: "";
+  position: absolute; inset: 1px;
   background: var(--bg-panel);
-  background-image:
-    linear-gradient(to right,  var(--border) 10px, transparent 10px) top left / 10px 1px no-repeat,
-    linear-gradient(to bottom, var(--border) 10px, transparent 10px) top left / 1px 10px no-repeat,
-    linear-gradient(to left,   var(--border) 10px, transparent 10px) top right / 10px 1px no-repeat,
-    linear-gradient(to bottom, var(--border) 10px, transparent 10px) top right / 1px 10px no-repeat,
-    linear-gradient(to right,  var(--border) 10px, transparent 10px) bottom left / 10px 1px no-repeat,
-    linear-gradient(to top,    var(--border) 10px, transparent 10px) bottom left / 1px 10px no-repeat,
-    linear-gradient(to left,   var(--border) 10px, transparent 10px) bottom right / 10px 1px no-repeat,
-    linear-gradient(to top,    var(--border) 10px, transparent 10px) bottom right / 1px 10px no-repeat;
-  transition: background-image 180ms;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  z-index: -1;
 }
-.vital.ok {
-  background-image:
-    linear-gradient(to right,  rgba(56, 214, 94, 0.55) 10px, transparent 10px) top left / 10px 1px no-repeat,
-    linear-gradient(to bottom, rgba(56, 214, 94, 0.55) 10px, transparent 10px) top left / 1px 10px no-repeat,
-    linear-gradient(to left,   rgba(56, 214, 94, 0.55) 10px, transparent 10px) top right / 10px 1px no-repeat,
-    linear-gradient(to bottom, rgba(56, 214, 94, 0.55) 10px, transparent 10px) top right / 1px 10px no-repeat,
-    linear-gradient(to right,  rgba(56, 214, 94, 0.55) 10px, transparent 10px) bottom left / 10px 1px no-repeat,
-    linear-gradient(to top,    rgba(56, 214, 94, 0.55) 10px, transparent 10px) bottom left / 1px 10px no-repeat,
-    linear-gradient(to left,   rgba(56, 214, 94, 0.55) 10px, transparent 10px) bottom right / 10px 1px no-repeat,
-    linear-gradient(to top,    rgba(56, 214, 94, 0.55) 10px, transparent 10px) bottom right / 1px 10px no-repeat;
-}
-.vital.bad {
-  background-image:
-    linear-gradient(to right,  rgba(255, 93, 108, 0.65) 10px, transparent 10px) top left / 10px 1px no-repeat,
-    linear-gradient(to bottom, rgba(255, 93, 108, 0.65) 10px, transparent 10px) top left / 1px 10px no-repeat,
-    linear-gradient(to left,   rgba(255, 93, 108, 0.65) 10px, transparent 10px) top right / 10px 1px no-repeat,
-    linear-gradient(to bottom, rgba(255, 93, 108, 0.65) 10px, transparent 10px) top right / 1px 10px no-repeat,
-    linear-gradient(to right,  rgba(255, 93, 108, 0.65) 10px, transparent 10px) bottom left / 10px 1px no-repeat,
-    linear-gradient(to top,    rgba(255, 93, 108, 0.65) 10px, transparent 10px) bottom left / 1px 10px no-repeat,
-    linear-gradient(to left,   rgba(255, 93, 108, 0.65) 10px, transparent 10px) bottom right / 10px 1px no-repeat,
-    linear-gradient(to top,    rgba(255, 93, 108, 0.65) 10px, transparent 10px) bottom right / 1px 10px no-repeat;
-}
-.vital.unknown {
-  background-image:
-    linear-gradient(to right,  rgba(255, 183, 0, 0.5) 10px, transparent 10px) top left / 10px 1px no-repeat,
-    linear-gradient(to bottom, rgba(255, 183, 0, 0.5) 10px, transparent 10px) top left / 1px 10px no-repeat,
-    linear-gradient(to left,   rgba(255, 183, 0, 0.5) 10px, transparent 10px) top right / 10px 1px no-repeat,
-    linear-gradient(to bottom, rgba(255, 183, 0, 0.5) 10px, transparent 10px) top right / 1px 10px no-repeat,
-    linear-gradient(to right,  rgba(255, 183, 0, 0.5) 10px, transparent 10px) bottom left / 10px 1px no-repeat,
-    linear-gradient(to top,    rgba(255, 183, 0, 0.5) 10px, transparent 10px) bottom left / 1px 10px no-repeat,
-    linear-gradient(to left,   rgba(255, 183, 0, 0.5) 10px, transparent 10px) bottom right / 10px 1px no-repeat,
-    linear-gradient(to top,    rgba(255, 183, 0, 0.5) 10px, transparent 10px) bottom right / 1px 10px no-repeat;
-}
+.vital.ok      { --vital-edge: rgba(56, 214, 94, 0.55); }
+.vital.bad     { --vital-edge: rgba(255, 93, 108, 0.65); }
+.vital.unknown { --vital-edge: rgba(255, 183, 0, 0.5); }
 .vital-k {
   display: block;
   font-size: 10px;
@@ -768,7 +763,10 @@ button:disabled { opacity: 0.65; cursor: progress; }
   inset: 0;
   pointer-events: none;
   z-index: 2;
+  transition: opacity 600ms ease-out;
 }
+.hud-overlay.dim { opacity: 0.22; }
+#live-wrap:hover .hud-overlay.dim { opacity: 1; }
 .reticle {
   position: absolute;
   width: 22px; height: 22px;
