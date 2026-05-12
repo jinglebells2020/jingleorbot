@@ -1851,10 +1851,12 @@ class _Handler(BaseHTTPRequestHandler):
         frames = sorted(d.glob("frame_*.jpg"))
         safe_name = name.replace("<", "&lt;").replace(">", "&gt;")
         items = "".join(
-            f'<a class="thumb" href="/batchfile/{name}/{f.name}" target="_blank">'
-            f'<img src="/batchfile/{name}/{f.name}" alt="{f.name}"></a>'
-            for f in frames
+            f'<a class="thumb" data-idx="{i}" href="/batchfile/{name}/{f.name}">'
+            f'<img src="/batchfile/{name}/{f.name}" alt="{f.name}" loading="lazy"></a>'
+            for i, f in enumerate(frames)
         )
+        frame_urls = json.dumps([f"/batchfile/{name}/{f.name}" for f in frames])
+        frame_names = json.dumps([f.name for f in frames])
         html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1867,10 +1869,12 @@ class _Handler(BaseHTTPRequestHandler):
   --border: #1c2538; --border-hi: #2a3a5c;
   --cyan: #4cc9f0; --text: #c8d4e8; --muted: #5b6985; --dim: #3a4459;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --panel-clip: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  --panel-clip-inner: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
 }}
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; background: var(--bg-deep); color: var(--text); font-family: var(--font-mono); font-size: 13px; }}
-body {{ padding: 14px; background-image: radial-gradient(rgba(76,201,240,0.06) 1px, transparent 1px); background-size: 32px 32px; min-height: 100vh; }}
+body {{ padding: 14px; background-image: radial-gradient(rgba(76,201,240,0.11) 1px, transparent 1px); background-size: 32px 32px; min-height: 100vh; }}
 .hud-header {{
   display: flex; align-items: center; gap: 10px;
   padding: 6px 14px 8px; border-bottom: 1px solid var(--border); margin-bottom: 14px;
@@ -1895,14 +1899,85 @@ body {{ padding: 14px; background-image: radial-gradient(rgba(76,201,240,0.06) 1
   border: 1px solid var(--border);
   background: #000;
   transition: border-color 150ms ease-out, transform 150ms ease-out;
+  cursor: zoom-in;
 }}
-.thumb img {{
-  display: block;
-  width: 100%; height: 140px;
-  object-fit: cover;
-}}
+.thumb img {{ display: block; width: 100%; height: 140px; object-fit: cover; }}
 .thumb:hover {{ border-color: var(--cyan); transform: scale(1.02); }}
 .empty {{ color: var(--muted); padding: 16px 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }}
+
+/* Lightbox */
+.lb {{
+  position: fixed; inset: 0;
+  display: none;
+  align-items: center; justify-content: center;
+  background: rgba(4, 6, 10, 0.92);
+  z-index: 100;
+  backdrop-filter: blur(3px);
+  cursor: zoom-out;
+}}
+.lb.on {{ display: flex; }}
+.lb-img-wrap {{
+  position: relative;
+  max-width: 92vw;
+  max-height: 84vh;
+  isolation: isolate;
+  cursor: default;
+}}
+.lb-img-wrap::before {{
+  content: ""; position: absolute; inset: 0;
+  background: var(--cyan);
+  clip-path: var(--panel-clip);
+  z-index: -2;
+}}
+.lb-img-wrap::after {{
+  content: ""; position: absolute; inset: 1px;
+  background: #000;
+  clip-path: var(--panel-clip-inner);
+  z-index: -1;
+}}
+.lb-img {{ display: block; max-width: 92vw; max-height: 84vh; padding: 4px; }}
+.lb-bar {{
+  position: fixed; left: 0; right: 0; bottom: 18px;
+  display: flex; align-items: center; justify-content: center;
+  gap: 18px;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text);
+  pointer-events: none;
+}}
+.lb-bar > * {{ pointer-events: auto; }}
+.lb-bar .name {{ color: var(--cyan); font-weight: 500; }}
+.lb-bar .idx  {{ color: var(--muted); }}
+.lb-nav {{
+  position: fixed; top: 50%; transform: translateY(-50%);
+  background: rgba(4, 6, 10, 0.55);
+  border: 1px solid var(--border);
+  color: var(--cyan);
+  width: 44px; height: 64px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-size: 22px;
+  user-select: none;
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+}}
+.lb-nav:hover {{ border-color: var(--cyan); background: rgba(76, 201, 240, 0.10); }}
+.lb-prev {{ left: 18px; }}
+.lb-next {{ right: 18px; }}
+.lb-close {{
+  position: fixed; top: 18px; right: 18px;
+  background: rgba(4, 6, 10, 0.55);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 6px 10px;
+  font: inherit; font-size: 10px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 150ms ease-out, color 150ms ease-out;
+}}
+.lb-close:hover {{ border-color: var(--cyan); color: var(--cyan); }}
+@media (max-width: 700px) {{
+  .lb-nav {{ width: 36px; height: 52px; font-size: 18px; }}
+  .lb-prev {{ left: 8px; }} .lb-next {{ right: 8px; }}
+}}
 </style>
 </head>
 <body>
@@ -1918,6 +1993,59 @@ body {{ padding: 14px; background-image: radial-gradient(rgba(76,201,240,0.06) 1
   <div class="frames">
     {items or '<div class="empty">// no frames in this batch</div>'}
   </div>
+  <div class="lb" id="lb" aria-hidden="true">
+    <div class="lb-img-wrap"><img class="lb-img" id="lbimg" alt=""></div>
+    <button class="lb-nav lb-prev" id="lbprev" title="Previous (←)">◀</button>
+    <button class="lb-nav lb-next" id="lbnext" title="Next (→)">▶</button>
+    <button class="lb-close" id="lbclose" title="Close (Esc)">✕ CLOSE</button>
+    <div class="lb-bar">
+      <span class="idx" id="lbidx">--</span>
+      <span class="name" id="lbname">--</span>
+    </div>
+  </div>
+  <script>
+    const FRAME_URLS  = {frame_urls};
+    const FRAME_NAMES = {frame_names};
+    const lb     = document.getElementById('lb');
+    const lbImg  = document.getElementById('lbimg');
+    const lbIdx  = document.getElementById('lbidx');
+    const lbName = document.getElementById('lbname');
+    let cur = -1;
+    function open(i) {{
+      if (!FRAME_URLS.length) return;
+      cur = (i + FRAME_URLS.length) % FRAME_URLS.length;
+      lbImg.src = FRAME_URLS[cur];
+      lbName.textContent = FRAME_NAMES[cur];
+      lbIdx.textContent = `${{(cur+1).toString().padStart(2,'0')}} / ${{FRAME_URLS.length.toString().padStart(2,'0')}}`;
+      lb.classList.add('on');
+      lb.setAttribute('aria-hidden', 'false');
+    }}
+    function close() {{
+      lb.classList.remove('on');
+      lb.setAttribute('aria-hidden', 'true');
+      lbImg.removeAttribute('src');
+      cur = -1;
+    }}
+    document.querySelectorAll('.thumb').forEach(a => {{
+      a.addEventListener('click', (e) => {{
+        e.preventDefault();
+        open(parseInt(a.dataset.idx, 10));
+      }});
+    }});
+    document.getElementById('lbprev').addEventListener('click', (e) => {{ e.stopPropagation(); open(cur - 1); }});
+    document.getElementById('lbnext').addEventListener('click', (e) => {{ e.stopPropagation(); open(cur + 1); }});
+    document.getElementById('lbclose').addEventListener('click', (e) => {{ e.stopPropagation(); close(); }});
+    lb.addEventListener('click', (e) => {{
+      // Click on backdrop closes; clicks on the image wrap don't.
+      if (e.target === lb) close();
+    }});
+    window.addEventListener('keydown', (e) => {{
+      if (!lb.classList.contains('on')) return;
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowLeft')  open(cur - 1);
+      else if (e.key === 'ArrowRight') open(cur + 1);
+    }});
+  </script>
 </body>
 </html>"""
         self._send(200, html, "text/html; charset=utf-8")
