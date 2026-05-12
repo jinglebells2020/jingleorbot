@@ -496,6 +496,122 @@ button:disabled { opacity: 0.65; cursor: progress; }
   .hud-cap { display: none; }
   .hud-actions { grid-column: 1; justify-content: flex-start; }
 }
+
+/* Vitals strip */
+.vitals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+@media (max-width: 900px) {
+  .vitals { grid-template-columns: repeat(2, 1fr); }
+}
+.vital {
+  position: relative;
+  padding: 14px 16px 12px;
+  background: var(--bg-panel);
+  background-image:
+    linear-gradient(to right,  var(--border) 10px, transparent 10px) top left / 10px 1px no-repeat,
+    linear-gradient(to bottom, var(--border) 10px, transparent 10px) top left / 1px 10px no-repeat,
+    linear-gradient(to left,   var(--border) 10px, transparent 10px) top right / 10px 1px no-repeat,
+    linear-gradient(to bottom, var(--border) 10px, transparent 10px) top right / 1px 10px no-repeat,
+    linear-gradient(to right,  var(--border) 10px, transparent 10px) bottom left / 10px 1px no-repeat,
+    linear-gradient(to top,    var(--border) 10px, transparent 10px) bottom left / 1px 10px no-repeat,
+    linear-gradient(to left,   var(--border) 10px, transparent 10px) bottom right / 10px 1px no-repeat,
+    linear-gradient(to top,    var(--border) 10px, transparent 10px) bottom right / 1px 10px no-repeat;
+  transition: background-image 180ms;
+}
+.vital.ok {
+  background-image:
+    linear-gradient(to right,  rgba(56, 214, 94, 0.55) 10px, transparent 10px) top left / 10px 1px no-repeat,
+    linear-gradient(to bottom, rgba(56, 214, 94, 0.55) 10px, transparent 10px) top left / 1px 10px no-repeat,
+    linear-gradient(to left,   rgba(56, 214, 94, 0.55) 10px, transparent 10px) top right / 10px 1px no-repeat,
+    linear-gradient(to bottom, rgba(56, 214, 94, 0.55) 10px, transparent 10px) top right / 1px 10px no-repeat,
+    linear-gradient(to right,  rgba(56, 214, 94, 0.55) 10px, transparent 10px) bottom left / 10px 1px no-repeat,
+    linear-gradient(to top,    rgba(56, 214, 94, 0.55) 10px, transparent 10px) bottom left / 1px 10px no-repeat,
+    linear-gradient(to left,   rgba(56, 214, 94, 0.55) 10px, transparent 10px) bottom right / 10px 1px no-repeat,
+    linear-gradient(to top,    rgba(56, 214, 94, 0.55) 10px, transparent 10px) bottom right / 1px 10px no-repeat;
+}
+.vital.bad {
+  background-image:
+    linear-gradient(to right,  rgba(255, 93, 108, 0.65) 10px, transparent 10px) top left / 10px 1px no-repeat,
+    linear-gradient(to bottom, rgba(255, 93, 108, 0.65) 10px, transparent 10px) top left / 1px 10px no-repeat,
+    linear-gradient(to left,   rgba(255, 93, 108, 0.65) 10px, transparent 10px) top right / 10px 1px no-repeat,
+    linear-gradient(to bottom, rgba(255, 93, 108, 0.65) 10px, transparent 10px) top right / 1px 10px no-repeat,
+    linear-gradient(to right,  rgba(255, 93, 108, 0.65) 10px, transparent 10px) bottom left / 10px 1px no-repeat,
+    linear-gradient(to top,    rgba(255, 93, 108, 0.65) 10px, transparent 10px) bottom left / 1px 10px no-repeat,
+    linear-gradient(to left,   rgba(255, 93, 108, 0.65) 10px, transparent 10px) bottom right / 10px 1px no-repeat,
+    linear-gradient(to top,    rgba(255, 93, 108, 0.65) 10px, transparent 10px) bottom right / 1px 10px no-repeat;
+}
+.vital.unknown {
+  background-image:
+    linear-gradient(to right,  rgba(255, 183, 0, 0.5) 10px, transparent 10px) top left / 10px 1px no-repeat,
+    linear-gradient(to bottom, rgba(255, 183, 0, 0.5) 10px, transparent 10px) top left / 1px 10px no-repeat,
+    linear-gradient(to left,   rgba(255, 183, 0, 0.5) 10px, transparent 10px) top right / 10px 1px no-repeat,
+    linear-gradient(to bottom, rgba(255, 183, 0, 0.5) 10px, transparent 10px) top right / 1px 10px no-repeat,
+    linear-gradient(to right,  rgba(255, 183, 0, 0.5) 10px, transparent 10px) bottom left / 10px 1px no-repeat,
+    linear-gradient(to top,    rgba(255, 183, 0, 0.5) 10px, transparent 10px) bottom left / 1px 10px no-repeat,
+    linear-gradient(to left,   rgba(255, 183, 0, 0.5) 10px, transparent 10px) bottom right / 10px 1px no-repeat,
+    linear-gradient(to top,    rgba(255, 183, 0, 0.5) 10px, transparent 10px) bottom right / 1px 10px no-repeat;
+}
+.vital-k {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.vital-v {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.vital.ok      .vital-v { color: var(--green); text-shadow: 0 0 10px rgba(56, 214, 94, 0.35); }
+.vital.bad     .vital-v { color: var(--red); }
+.vital.unknown .vital-v { color: var(--amber); }
+.vital-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.vital-dot {
+  position: absolute;
+  top: 14px; right: 16px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 2px var(--bg-panel);
+}
+.vital.ok      .vital-dot { background: var(--green); animation: breathe 2s ease-in-out infinite; }
+.vital.bad     .vital-dot { background: var(--red); }
+.vital.unknown .vital-dot { background: var(--amber); animation: breathe-fast 1s ease-in-out infinite; }
+@keyframes breathe       { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes breathe-fast  { 0%, 100% { opacity: 0.5; }  50% { opacity: 1; } }
+
+/* Buffer mini-segments in the BUFFER vital tile */
+.vital-segs {
+  position: absolute;
+  top: 16px; right: 16px;
+  display: grid;
+  grid-template-columns: repeat(15, 4px);
+  gap: 2px;
+  align-items: center;
+}
+.vital-segs > i {
+  display: block;
+  width: 4px; height: 10px;
+  background: var(--dim);
+}
+.vital-segs > i.lit { background: var(--cyan); box-shadow: 0 0 4px rgba(76, 201, 240, 0.55); }
+.vital.ok .vital-segs > i.lit { background: var(--green); box-shadow: 0 0 4px rgba(56, 214, 94, 0.55); }
 </style>
 </head>
 <body>
@@ -514,7 +630,32 @@ button:disabled { opacity: 0.65; cursor: progress; }
     <button class="capture" id="capture">◉ EXECUTE CAPTURE <span id="bufN">15</span></button>
   </div>
 </header>
-<div class="pills" id="status"></div>
+<div class="vitals" id="vitals">
+  <div class="vital" data-key="link">
+    <span class="vital-k">Link</span>
+    <span class="vital-v" id="v-link">--</span>
+    <span class="vital-sub" id="v-link-sub"></span>
+    <span class="vital-dot" id="v-link-dot"></span>
+  </div>
+  <div class="vital" data-key="http">
+    <span class="vital-k">HTTP</span>
+    <span class="vital-v" id="v-http">--</span>
+    <span class="vital-sub" id="v-http-sub"></span>
+    <span class="vital-dot" id="v-http-dot"></span>
+  </div>
+  <div class="vital" data-key="buffer">
+    <span class="vital-k">Buffer</span>
+    <span class="vital-v" id="v-buf">0/15</span>
+    <span class="vital-sub" id="v-buf-sub">awaiting feed</span>
+    <span class="vital-segs" id="v-buf-segs"></span>
+  </div>
+  <div class="vital" data-key="batches">
+    <span class="vital-k">Batches</span>
+    <span class="vital-v" id="v-bat">0</span>
+    <span class="vital-sub" id="v-bat-sub">no saves yet</span>
+    <span class="vital-dot" id="v-bat-dot"></span>
+  </div>
+</div>
 
 <div class="row">
   <section class="panel">
@@ -596,20 +737,83 @@ function appendLog(ev) {
 }
 
 function renderStatus(s) {
-  const pingOk = s.pi.ping === 'up';
-  const httpOk = s.pi.http === 'ok';
-  const pills = [
-    `<span class="pill ${pingOk?'ok':(s.pi.ping==='?'?'unknown':'bad')}"><span class="dot"></span><b>Pi</b> ${esc(s.pi.ping)}</span>`,
-    `<span class="pill ${httpOk?'ok':(s.pi.http==='?'?'unknown':'bad')}"><span class="dot"></span><b>HTTP</b> ${esc(s.pi.http)}</span>`,
-    `<span class="pill ${s.buffer.count>0?'ok':'unknown'}"><span class="dot"></span><b>buffer</b> ${s.buffer.count}/${s.buffer.max} · seen ${s.buffer.frames_seen}</span>`,
-    `<span class="pill ${s.batches_saved>0?'ok':'unknown'}"><span class="dot"></span><b>saved</b> ${s.batches_saved}${s.last_batch?' · '+esc(s.last_batch)+' @ '+esc(s.last_batch_at||''):''}</span>`,
-  ];
-  stat.innerHTML = pills.join('');
-  // buffer meter
-  const pct = Math.round((s.buffer.count / s.buffer.max) * 100);
-  $('bufbar').style.width = pct + '%';
-  $('bufcount').textContent = `${s.buffer.count}/${s.buffer.max}`;
+  // ── LINK ─────────────────────────────────────────────
+  const linkEl = $('v-link').parentElement;
+  linkEl.classList.remove('ok', 'bad', 'unknown');
+  if (s.pi.ping === 'up') {
+    linkEl.classList.add('ok');
+    $('v-link').textContent = 'UP';
+    $('v-link-sub').textContent = 'reachable';
+  } else if (s.pi.ping === '?' || s.pi.ping == null) {
+    linkEl.classList.add('unknown');
+    $('v-link').textContent = '--';
+    $('v-link-sub').textContent = 'awaiting probe';
+  } else {
+    linkEl.classList.add('bad');
+    $('v-link').textContent = String(s.pi.ping).toUpperCase();
+    $('v-link-sub').textContent = 'no reply';
+  }
+
+  // ── HTTP ─────────────────────────────────────────────
+  const httpEl = $('v-http').parentElement;
+  httpEl.classList.remove('ok', 'bad', 'unknown');
+  if (s.pi.http === 'ok') {
+    httpEl.classList.add('ok');
+    $('v-http').textContent = 'OK';
+    $('v-http-sub').textContent = 'port 8080';
+  } else if (s.pi.http === '?' || s.pi.http == null) {
+    httpEl.classList.add('unknown');
+    $('v-http').textContent = '--';
+    $('v-http-sub').textContent = 'awaiting probe';
+  } else {
+    httpEl.classList.add('bad');
+    $('v-http').textContent = String(s.pi.http).toUpperCase();
+    $('v-http-sub').textContent = 'upstream fault';
+  }
+
+  // ── BUFFER ───────────────────────────────────────────
+  const bufEl = $('v-buf').parentElement;
+  bufEl.classList.remove('ok', 'bad', 'unknown');
+  $('v-buf').textContent = `${s.buffer.count}/${s.buffer.max}`;
+  if (s.buffer.count >= s.buffer.max) {
+    bufEl.classList.add('ok');
+    $('v-buf-sub').textContent = `armed · ${s.buffer.frames_seen} seen`;
+  } else if (s.buffer.count > 0) {
+    $('v-buf-sub').textContent = `filling · ${s.buffer.frames_seen} seen`;
+  } else {
+    bufEl.classList.add('unknown');
+    $('v-buf-sub').textContent = 'awaiting feed';
+  }
+  renderBufSegs(s.buffer.count, s.buffer.max);
+
+  // ── BATCHES ──────────────────────────────────────────
+  const batEl = $('v-bat').parentElement;
+  batEl.classList.remove('ok', 'bad', 'unknown');
+  $('v-bat').textContent = String(s.batches_saved);
+  if (s.batches_saved > 0) {
+    batEl.classList.add('ok');
+    $('v-bat-sub').textContent = s.last_batch
+      ? `${s.last_batch} @ ${s.last_batch_at || ''}`
+      : `${s.batches_saved} saved`;
+  } else {
+    $('v-bat-sub').textContent = 'no saves yet';
+  }
+
+  // ── Mirror to legacy elements (kept for now) ─────────
   $('bufN').textContent = s.buffer.count || s.buffer.max;
+  $('bufcount').textContent = `${s.buffer.count}/${s.buffer.max}`;
+}
+
+function renderBufSegs(count, max) {
+  const seg = $('v-buf-segs');
+  if (seg.childElementCount !== max) {
+    seg.innerHTML = '';
+    for (let i = 0; i < max; i++) seg.appendChild(document.createElement('i'));
+  }
+  const kids = seg.children;
+  for (let i = 0; i < kids.length; i++) {
+    kids[i].classList.toggle('lit', i < count);
+  }
 }
 
 async function refreshShots() {
