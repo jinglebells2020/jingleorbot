@@ -440,6 +440,8 @@ button.snap {
   min-width: 120px; text-align: center;
 }
 button.snap:hover { background: rgba(76, 201, 240, 0.10); color: var(--cyan); }
+button.snap.busy { background: var(--amber); border-color: var(--amber); color: #1a1108; }
+button.snap.done { background: var(--green); border-color: var(--green); color: #03150a; }
 button.snap:disabled {
   background: var(--bg-raised); color: var(--muted); border-color: var(--border);
   cursor: not-allowed;
@@ -571,33 +573,50 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   flex: 1 1 0;
   min-height: 0;
 }
-#shots a {
+.shot-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  transition: border-color 150ms ease-out, transform 150ms ease-out, background 150ms ease-out;
+}
+.shot-row:hover { border-color: var(--cyan); transform: translateX(4px); background: rgba(76, 201, 240, 0.06); }
+.shot-link {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-raised);
   color: var(--text);
   text-decoration: none;
   font-size: 12px;
-  transition: border-color 150ms ease-out, transform 150ms ease-out, background 150ms ease-out;
 }
-#shots a::before {
-  content: "▣";
-  color: var(--cyan);
-  font-size: 12px;
-}
-#shots a:hover { border-color: var(--cyan); transform: translateX(4px); background: rgba(76, 201, 240, 0.06); }
-#shots .name { color: var(--cyan); font-weight: 500; letter-spacing: 0.04em; }
-#shots .meta {
+.shot-link::before { content: "▣"; color: var(--cyan); font-size: 12px; }
+.shot-row .name { color: var(--cyan); font-weight: 500; letter-spacing: 0.04em; }
+.shot-row .meta {
   color: var(--muted);
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
 }
+.row-btn {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0 10px;
+  min-width: 28px;
+  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  transition: color 150ms ease-out, background 150ms ease-out;
+}
+.row-btn:hover { color: var(--cyan); background: rgba(76, 201, 240, 0.08); }
+.row-btn-del:hover { color: var(--red); background: rgba(255, 93, 108, 0.10); }
 .empty { color: var(--muted); font-style: normal; padding: 4px 0; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
 
 /* Scrollbar polish */
@@ -1005,7 +1024,8 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   <span class="hud-cap hud-cap-r"></span>
   <div class="hud-actions">
     <button class="primary" id="live">▶ INIT FEED</button>
-    <button class="capture" id="capture">◉ EXECUTE CAPTURE <span id="bufN">15</span></button>
+    <button class="snap" id="snap" disabled>◉ SNAP</button>
+    <button class="capture" id="capture" disabled>◉ BUFFER NOT ARMED</button>
   </div>
 </header>
 <div class="vitals" id="vitals">
@@ -1232,9 +1252,9 @@ function updateCaptureBtn(s) {
     captureBtn.classList.remove('disarmed');
     captureBtn.innerHTML = `◉ EXECUTE CAPTURE <span id="bufN">${s.buffer.count}</span>`;
   }
-  const snapBtn = $('snap');
-  if (snapBtn) {
-    snapBtn.disabled = s.buffer.count === 0;
+  const snapBtnEl = $('snap');
+  if (snapBtnEl && !snapBtnEl.classList.contains('busy') && !snapBtnEl.classList.contains('done')) {
+    snapBtnEl.disabled = s.buffer.count === 0;
   }
 }
 
@@ -1310,14 +1330,58 @@ async function refreshShots() {
       shots.innerHTML = '<div class="empty">// NO CAPTURES — INIT FEED &amp; EXECUTE CAPTURE</div>';
       return;
     }
-    shots.innerHTML = list.slice(0, 30).map(b =>
-      `<a href="/batch/${encodeURIComponent(b.name)}" target="_blank">
-         <span class="name">${esc(b.name)}</span>
-         <span class="meta">${b.frames} fr · ${b.ago}</span>
-       </a>`
-    ).join('');
+    shots.innerHTML = list.slice(0, 30).map(b => {
+      const n = esc(b.name);
+      return (
+        `<div class="shot-row" data-name="${n}">
+          <a class="shot-link" href="/batch/${encodeURIComponent(b.name)}" target="_blank">
+            <span class="name">${n}</span>
+            <span class="meta">${b.frames} fr · ${esc(b.ago)}</span>
+          </a>
+          <button class="row-btn" data-action="rename" data-name="${n}" title="Rename">✎</button>
+          <button class="row-btn row-btn-del" data-action="delete" data-name="${n}" title="Delete">×</button>
+        </div>`
+      );
+    }).join('');
   } catch (e) {}
 }
+
+shots.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const name = btn.dataset.name;
+  const action = btn.dataset.action;
+  if (action === 'delete') {
+    if (!confirm(`Delete ${name}? Frames will be permanently removed.`)) return;
+    try {
+      const r = await fetch(`/api/delete-batch?name=${encodeURIComponent(name)}`, { method: 'POST' });
+      if (!r.ok) {
+        const txt = await r.text();
+        appendLog({ t: '', src: 'sys', msg: `delete failed: ${txt}` });
+      } else {
+        refreshShots();
+      }
+    } catch (err) {
+      appendLog({ t: '', src: 'sys', msg: `delete error: ${err}` });
+    }
+  } else if (action === 'rename') {
+    const next = prompt(`Rename ${name} to:`, name);
+    if (!next || next === name) return;
+    try {
+      const r = await fetch(`/api/rename-batch?name=${encodeURIComponent(name)}&new_name=${encodeURIComponent(next)}`, { method: 'POST' });
+      if (!r.ok) {
+        const txt = await r.text();
+        appendLog({ t: '', src: 'sys', msg: `rename failed: ${txt}` });
+      } else {
+        refreshShots();
+      }
+    } catch (err) {
+      appendLog({ t: '', src: 'sys', msg: `rename error: ${err}` });
+    }
+  }
+});
 setInterval(refreshShots, 4000);
 refreshShots();
 
@@ -1563,6 +1627,43 @@ rotbtn.addEventListener('click', () => {
   const cur = parseInt(rotselect.value, 10) || 0;
   rotselect.value = String((cur + 90) % 360);
   applyOrientation(true);
+});
+
+// ── Snap (single frame) ─────────────────────────────────────────
+const snapBtn = $('snap');
+snapBtn.addEventListener('click', async () => {
+  if (snapBtn.disabled) return;
+  const orig = snapBtn.innerHTML;
+  snapBtn.disabled = true;
+  snapBtn.classList.add('busy');
+  snapBtn.innerHTML = '■ SNAPPING…';
+  try {
+    const rot = parseInt(rotselect.value, 10) || 0;
+    const hf  = hflipCb.checked ? 1 : 0;
+    const vf  = vflipCb.checked ? 1 : 0;
+    const r = await fetch(`/api/snap?rot=${rot}&hflip=${hf}&vflip=${vf}`, { method: 'POST' });
+    if (!r.ok) {
+      const txt = await r.text();
+      appendLog({ t: '', src: 'sys', msg: `snap failed (${r.status}): ${txt}` });
+      snapBtn.classList.remove('busy');
+      snapBtn.innerHTML = r.status === 409 ? '⚠ EMPTY' : '⚠ FAILED';
+    } else {
+      snapBtn.classList.remove('busy');
+      snapBtn.classList.add('done');
+      snapBtn.innerHTML = '✓ SAVED';
+      refreshShots();
+    }
+  } catch (err) {
+    appendLog({ t: '', src: 'sys', msg: `snap error: ${err}` });
+    snapBtn.classList.remove('busy');
+    snapBtn.innerHTML = '⚠ FAILED';
+  } finally {
+    setTimeout(() => {
+      snapBtn.classList.remove('busy', 'done');
+      snapBtn.innerHTML = orig;
+      // disabled is restored by next renderStatus based on buffer
+    }, 1400);
+  }
 });
 
 // ── Capture buffer ──────────────────────────────────────────────
