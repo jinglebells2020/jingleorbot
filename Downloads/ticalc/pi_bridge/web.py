@@ -661,12 +661,25 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 .hud-status.show-green { color: var(--green); }
 .hud-status.show-amber { color: var(--amber); }
 .hud-status.show-red   { color: var(--red); }
-.hud-actions { grid-column: 8; display: flex; gap: 8px; justify-content: flex-end; }
+.hud-actions { grid-column: 8; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 
+@media (max-width: 1280px) {
+  .hud-header {
+    grid-template-columns: 18px auto auto auto auto auto 1fr 18px;
+    grid-template-rows: auto auto;
+    row-gap: 8px;
+  }
+  .hud-cap-r { grid-column: 8; }
+  .hud-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+}
 @media (max-width: 900px) {
   .hud-header { grid-template-columns: 1fr; gap: 4px; padding: 8px; }
   .hud-cap { display: none; }
-  .hud-actions { grid-column: 1; justify-content: flex-start; }
+  .hud-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; }
 }
 
 /* Vitals strip */
@@ -903,6 +916,68 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 #bufcount { color: var(--cyan); font-weight: 500; font-variant-numeric: tabular-nums; }
 .buf-meter { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
 
+/* Keyboard shortcuts overlay */
+.shortcuts-help {
+  position: fixed; inset: 0;
+  display: none;
+  align-items: center; justify-content: center;
+  background: rgba(4, 6, 10, 0.78);
+  z-index: 100;
+  backdrop-filter: blur(2px);
+}
+.shortcuts-help.show { display: flex; }
+.shortcuts-help .sh-card {
+  position: relative;
+  padding: 32px 36px 28px;
+  min-width: 360px;
+  isolation: isolate;
+}
+.shortcuts-help .sh-card::before {
+  content: ""; position: absolute; inset: 0;
+  background: var(--cyan);
+  clip-path: var(--panel-clip);
+  z-index: -2;
+}
+.shortcuts-help .sh-card::after {
+  content: ""; position: absolute; inset: 1px;
+  background: var(--bg-panel);
+  clip-path: var(--panel-clip-inner);
+  z-index: -1;
+}
+.shortcuts-help .sh-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-bottom: 18px;
+}
+.shortcuts-help dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 20px;
+  margin: 0;
+}
+.shortcuts-help dt {
+  color: var(--cyan);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.shortcuts-help dd {
+  color: var(--text);
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.shortcuts-help .sh-foot {
+  margin-top: 22px;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+  text-align: center;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .vital-dot,
@@ -1031,6 +1106,22 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   <div id="log"></div>
 </section>
 
+<div id="shortcuts-help" class="shortcuts-help">
+  <div class="sh-card">
+    <div class="sh-title">// KEYBOARD SHORTCUTS</div>
+    <dl>
+      <dt>Space</dt><dd>Toggle live feed</dd>
+      <dt>C</dt><dd>Execute capture (full buffer)</dd>
+      <dt>S</dt><dd>Snap (single frame)</dd>
+      <dt>R</dt><dd>Rotate 90°</dd>
+      <dt>H / V</dt><dd>Toggle H-flip / V-flip</dd>
+      <dt>?</dt><dd>Toggle this help</dd>
+      <dt>Esc</dt><dd>Close help</dd>
+    </dl>
+    <div class="sh-foot">PRESS ? OR ESC TO CLOSE</div>
+  </div>
+</div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const log = $('log');
@@ -1122,6 +1213,10 @@ function renderStatus(s) {
   renderBufLeds(s.buffer.count, s.buffer.max);
   updateCaptureBtn(s);
   updateArmedPip(s);
+  if (typeof s.uptime === 'number') {
+    _uptimeAnchor = { server_s: s.uptime, client_ms: Date.now() };
+    tickTimer();
+  }
   handleBoot(s);  // also recovers / shows on link state changes
 }
 
@@ -1174,21 +1269,37 @@ function renderBufLeds(count, max) {
   row.classList.toggle('full', count >= max);
 }
 
-// HUD params readout (res · quality · AF mode · rotation · flips)
+// HUD params readout — minimal "what's recording" view (rotation/flips
+// are visible from the rotated image itself and live in the toolbar).
 function updateHudParams() {
   const params = $('hudparams');
   if (!params) return;
-  const res = RES_LABELS[resselect.value] || resselect.value;
+  const res = (RES_LABELS[resselect.value] || resselect.value).split(' @ ')[0];
   const af = afselect.value === 'manual'
-    ? `AF MAN · ${diopterLabel(lensSlider.value)}`
+    ? `AF MAN ${diopterLabel(lensSlider.value)}`
     : (afselect.value === 'continuous' ? 'AF CONT' : 'AF AUTO');
-  const rot = parseInt(rotselect.value, 10) || 0;
-  const flips = (hflipCb.checked ? ' Hx' : '') + (vflipCb.checked ? ' Vx' : '');
-  params.textContent = `${res} · Q${_q} · ${af} · ROT${rot}°${flips}`;
+  params.textContent = `${res} · Q${_q} · ${af}`;
 }
 
 // REC dot visibility (toggled by setLive)
 function setRecDot(on) { $('recdot').classList.toggle('on', !!on); }
+
+// HUD overlay dim — fade reticles/crosshair after a few seconds of feed
+let _hudDimTimer = null;
+function scheduleHudDim() {
+  clearTimeout(_hudDimTimer);
+  const ov = document.querySelector('.hud-overlay');
+  if (ov) ov.classList.remove('dim');
+  _hudDimTimer = setTimeout(() => {
+    const ov2 = document.querySelector('.hud-overlay');
+    if (ov2 && _live_on) ov2.classList.add('dim');
+  }, 3000);
+}
+function cancelHudDim() {
+  clearTimeout(_hudDimTimer);
+  const ov = document.querySelector('.hud-overlay');
+  if (ov) ov.classList.remove('dim');
+}
 
 async function refreshShots() {
   try {
@@ -1210,20 +1321,20 @@ async function refreshShots() {
 setInterval(refreshShots, 4000);
 refreshShots();
 
-// ── Mission timer ───────────────────────────────────────────────
-(function startTimer() {
+// ── Mission timer — server uptime, drift-corrected per status push ─
+let _uptimeAnchor = null; // { server_s, client_ms }
+function tickTimer() {
   const tEl = $('mtimer');
-  const t0 = Date.now();
-  function tick() {
-    const s = Math.floor((Date.now() - t0) / 1000);
-    const hh = String(Math.floor(s / 3600)).padStart(2, '0');
-    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-    const ss = String(s % 60).padStart(2, '0');
-    tEl.textContent = `T+ ${hh}:${mm}:${ss}`;
-  }
-  tick();
-  setInterval(tick, 1000);
-})();
+  if (!_uptimeAnchor) { tEl.textContent = 'T+ --:--:--'; return; }
+  const elapsed = Math.floor((Date.now() - _uptimeAnchor.client_ms) / 1000);
+  const s = _uptimeAnchor.server_s + elapsed;
+  const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  tEl.textContent = `T+ ${hh}:${mm}:${ss}`;
+}
+tickTimer();
+setInterval(tickTimer, 1000);
 
 // ── Boot caption — bound to first status, recovers on link change ──
 let _firstStatus = true;
@@ -1375,6 +1486,7 @@ function setLive(on) {
     liveBtn.innerHTML = '■ HALT FEED';
     setRecDot(true);
     updateHudParams();
+    scheduleHudDim();
   } else {
     _suppressErrUntil = Date.now() + 1500;
     liveImg.removeAttribute('src');
@@ -1382,6 +1494,7 @@ function setLive(on) {
     livePlaceholder.textContent = '// AWAITING FEED — PRESS INIT FEED';
     liveBtn.innerHTML = '▶ INIT FEED';
     setRecDot(false);
+    cancelHudDim();
   }
 }
 function restart() { _suppressErrUntil = Date.now() + 1500; liveImg.src = streamUrl(); }
@@ -1501,6 +1614,36 @@ ev.onmessage = (m) => {
   } catch(e) {}
 };
 fetch('/api/status').then(r => r.json()).then(renderStatus);
+
+// ── Keyboard shortcuts ─────────────────────────────────────────
+window.addEventListener('keydown', (e) => {
+  // Skip if the user is typing in a form field
+  const tag = (e.target.tagName || '').toUpperCase();
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === ' ' || e.code === 'Space') {
+    e.preventDefault(); liveBtn.click();
+  } else if (k === 'c') {
+    if (!captureBtn.disabled) captureBtn.click();
+  } else if (k === 's') {
+    const snapBtn = $('snap');
+    if (snapBtn && !snapBtn.disabled) snapBtn.click();
+  } else if (k === 'r') {
+    rotbtn.click();
+  } else if (k === 'h') {
+    hflipCb.checked = !hflipCb.checked; hflipCb.dispatchEvent(new Event('change'));
+  } else if (k === 'v') {
+    vflipCb.checked = !vflipCb.checked; vflipCb.dispatchEvent(new Event('change'));
+  } else if (k === '?') {
+    $('shortcuts-help').classList.toggle('show');
+  } else if (k === 'escape') {
+    $('shortcuts-help').classList.remove('show');
+  }
+});
+$('shortcuts-help').addEventListener('click', (e) => {
+  if (e.target.id === 'shortcuts-help') $('shortcuts-help').classList.remove('show');
+});
 </script>
 </body>
 </html>
