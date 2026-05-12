@@ -1386,15 +1386,77 @@ class _Handler(BaseHTTPRequestHandler):
         if not d.is_dir():
             self._send(404, "no such batch"); return
         frames = sorted(d.glob("frame_*.jpg"))
+        safe_name = name.replace("<", "&lt;").replace(">", "&gt;")
         items = "".join(
-            f'<a href="/batchfile/{name}/{f.name}" target="_blank" style="display:inline-block; margin: 4px;">'
-            f'<img src="/batchfile/{name}/{f.name}" style="height:140px; border-radius:6px; border: 1px solid #262a32;"></a>'
+            f'<a class="thumb" href="/batchfile/{name}/{f.name}" target="_blank">'
+            f'<img src="/batchfile/{name}/{f.name}" alt="{f.name}"></a>'
             for f in frames
         )
-        html = (f"<!doctype html><html><body style='background:#0e0f12;color:#d6d9df;font-family:system-ui;padding:14px'>"
-                f"<h2 style='font-weight:500'>{name}</h2>"
-                f"<p style='color:#7d8390'>{len(frames)} frames</p>"
-                f"<div>{items}</div></body></html>")
+        html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{safe_name} — ticalc batch</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+:root {{
+  --bg-deep: #04060a; --bg-panel: #0a0e1a; --bg-raised: #0f1422;
+  --border: #1c2538; --border-hi: #2a3a5c;
+  --cyan: #4cc9f0; --text: #c8d4e8; --muted: #5b6985; --dim: #3a4459;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}}
+* {{ box-sizing: border-box; }}
+html, body {{ margin: 0; background: var(--bg-deep); color: var(--text); font-family: var(--font-mono); font-size: 13px; }}
+body {{ padding: 14px; background-image: radial-gradient(rgba(76,201,240,0.06) 1px, transparent 1px); background-size: 32px 32px; min-height: 100vh; }}
+.hud-header {{
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 14px 8px; border-bottom: 1px solid var(--border); margin-bottom: 14px;
+  flex-wrap: wrap;
+}}
+.hud-title {{ font-size: 14px; font-weight: 600; letter-spacing: 0.18em; }}
+.hud-sub   {{ color: var(--muted); font-size: 11px; letter-spacing: 0.14em; }}
+.hud-sep   {{ color: var(--dim); font-size: 12px; }}
+.back-tab {{
+  color: var(--cyan); text-decoration: none;
+  border: 1px solid var(--border); padding: 4px 10px;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+}}
+.back-tab:hover {{ border-color: var(--cyan); background: rgba(76,201,240,0.06); }}
+.frames {{
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}}
+.thumb {{
+  display: block;
+  border: 1px solid var(--border);
+  background: #000;
+  transition: border-color 150ms ease-out, transform 150ms ease-out;
+}}
+.thumb img {{
+  display: block;
+  width: 100%; height: 140px;
+  object-fit: cover;
+}}
+.thumb:hover {{ border-color: var(--cyan); transform: scale(1.02); }}
+.empty {{ color: var(--muted); padding: 16px 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }}
+</style>
+</head>
+<body>
+  <header class="hud-header">
+    <a class="back-tab" href="/">// ← RETURN TO BRIDGE</a>
+    <span class="hud-sep">·</span>
+    <span class="hud-sub">TICALC.CAMERA / BATCH</span>
+    <span class="hud-sep">·</span>
+    <span class="hud-title">{safe_name}</span>
+    <span class="hud-sep">·</span>
+    <span class="hud-sub">{len(frames)} FRAMES</span>
+  </header>
+  <div class="frames">
+    {items or '<div class="empty">// no frames in this batch</div>'}
+  </div>
+</body>
+</html>"""
         self._send(200, html, "text/html; charset=utf-8")
 
     def _serve_batch_file(self, rel):
