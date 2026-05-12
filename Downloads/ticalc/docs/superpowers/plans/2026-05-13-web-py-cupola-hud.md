@@ -322,7 +322,7 @@ Stop the server with Ctrl+C.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Downloads/ticalc/pi_bridge/web.py
+git add pi_bridge/web.py
 git commit -m "$(cat <<'EOF'
 ticalc/web: CSS foundation for Cupola HUD restyle
 
@@ -533,7 +533,7 @@ Run the server, reload the page. Verify:
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Downloads/ticalc/pi_bridge/web.py
+git add pi_bridge/web.py
 git commit -m "$(cat <<'EOF'
 ticalc/web: HUD header strip with mission timer + boot pulse
 
@@ -788,7 +788,7 @@ Reload the page. Verify:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Downloads/ticalc/pi_bridge/web.py
+git add pi_bridge/web.py
 git commit -m "$(cat <<'EOF'
 ticalc/web: vitals strip with segmented buffer LED
 
@@ -1153,7 +1153,7 @@ Reload, then click `▶ INIT FEED`. Verify:
 - [ ] **Step 9: Commit**
 
 ```bash
-git add Downloads/ticalc/pi_bridge/web.py
+git add pi_bridge/web.py
 git commit -m "$(cat <<'EOF'
 ticalc/web: HUD overlay on live feed + pill flip toggles + LED buffer
 
@@ -1329,7 +1329,7 @@ Reload. Verify:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Downloads/ticalc/pi_bridge/web.py
+git add pi_bridge/web.py
 git commit -m "$(cat <<'EOF'
 ticalc/web: comms-style TX log + bracketed capture rows
 
@@ -1468,7 +1468,7 @@ Run the server, capture a buffer (or use an existing batch). On the main page, c
 - [ ] **Step 3: Commit**
 
 ```bash
-git add Downloads/ticalc/pi_bridge/web.py
+git add pi_bridge/web.py
 git commit -m "$(cat <<'EOF'
 ticalc/web: HUD-styled batch viewer page
 
@@ -1545,7 +1545,7 @@ If everything passes, proceed. If anything fails, fix it inline, retest, then co
 - [ ] **Step 4: Final commit (only if Step 1 or fixes from Step 2/3 produced changes)**
 
 ```bash
-git add Downloads/ticalc/pi_bridge/web.py
+git add pi_bridge/web.py
 git commit -m "$(cat <<'EOF'
 ticalc/web: prefers-reduced-motion overrides + cleanup
 
