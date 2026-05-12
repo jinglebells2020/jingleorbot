@@ -612,6 +612,123 @@ button:disabled { opacity: 0.65; cursor: progress; }
 }
 .vital-segs > i.lit { background: var(--cyan); box-shadow: 0 0 4px rgba(76, 201, 240, 0.55); }
 .vital.ok .vital-segs > i.lit { background: var(--green); box-shadow: 0 0 4px rgba(56, 214, 94, 0.55); }
+
+/* HUD overlay on the live video */
+.hud-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.reticle {
+  position: absolute;
+  width: 22px; height: 22px;
+  border-color: var(--cyan);
+  border-style: solid;
+  opacity: 0.7;
+}
+.r-tl { top: 10px;    left: 10px;    border-width: 1px 0 0 1px; }
+.r-tr { top: 10px;    right: 10px;   border-width: 1px 1px 0 0; }
+.r-bl { bottom: 10px; left: 10px;    border-width: 0 0 1px 1px; }
+.r-br { bottom: 10px; right: 10px;   border-width: 0 1px 1px 0; }
+.crosshair {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 28px; height: 28px;
+  transform: translate(-50%, -50%);
+  opacity: 0.35;
+}
+.crosshair::before, .crosshair::after {
+  content: "";
+  position: absolute;
+  background: var(--cyan);
+}
+.crosshair::before { top: 50%; left: 0; right: 0; height: 1px; transform: translateY(-50%); }
+.crosshair::after  { left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); }
+.rec-dot {
+  position: absolute;
+  top: 14px; right: 18px;
+  display: none;
+  align-items: center;
+  gap: 7px;
+  color: var(--cyan);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.rec-dot.on { display: inline-flex; }
+.rec-dot::before {
+  content: "";
+  display: inline-block;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(76, 201, 240, 0.75);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+.rec-dot::after { content: "REC"; }
+@keyframes rec-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.hud-params {
+  position: absolute;
+  bottom: 12px; left: 14px;
+  color: var(--cyan);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: rgba(4, 6, 10, 0.6);
+  padding: 3px 8px;
+  border: 1px solid rgba(76, 201, 240, 0.25);
+}
+#live-placeholder { z-index: 3; }
+#live-img { z-index: 1; }
+
+/* Pill toggles for H-flip / V-flip */
+.live-controls input[type=checkbox] { display: none; }
+.live-controls .pill-tog {
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; user-select: none;
+}
+.live-controls .pill-tog .pill-slot {
+  display: inline-flex;
+  width: 30px; height: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background 150ms, border-color 150ms;
+}
+.live-controls .pill-tog .pill-slot::before {
+  content: "";
+  position: absolute;
+  top: 1px; left: 1px;
+  width: 12px; height: 12px;
+  background: var(--muted);
+  transition: left 150ms, background 150ms;
+}
+.live-controls .pill-tog input:checked + .pill-slot {
+  background: rgba(76, 201, 240, 0.18);
+  border-color: var(--cyan);
+}
+.live-controls .pill-tog input:checked + .pill-slot::before {
+  left: 15px;
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+}
+
+/* Buffer LED row in controls strip */
+.buf-leds {
+  display: inline-grid;
+  grid-template-columns: repeat(15, 6px);
+  gap: 2px;
+  align-items: center;
+}
+.buf-leds > i {
+  display: block;
+  width: 6px; height: 12px;
+  background: var(--dim);
+}
+.buf-leds > i.lit { background: var(--cyan); box-shadow: 0 0 4px rgba(76, 201, 240, 0.6); }
+.buf-leds.full > i.lit { background: var(--green); box-shadow: 0 0 6px rgba(56, 214, 94, 0.55); animation: breathe 2s ease-in-out infinite; }
+#bufcount { color: var(--cyan); font-weight: 500; font-variant-numeric: tabular-nums; }
+.buf-meter { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -683,8 +800,8 @@ button:disabled { opacity: 0.65; cursor: progress; }
           <option value="270">270° ↺</option>
         </select>
         <button id="rotbtn" title="Rotate 90° clockwise" type="button" style="padding: 3px 7px; margin-left: 2px;">↻</button>
-        <label style="margin-left: 6px;"><input type="checkbox" id="hflip"> H-flip</label>
-        <label><input type="checkbox" id="vflip"> V-flip</label>
+        <label class="pill-tog" style="margin-left: 6px;"><input type="checkbox" id="hflip"><span class="pill-slot"></span>H-Flip</label>
+        <label class="pill-tog"><input type="checkbox" id="vflip"><span class="pill-slot"></span>V-Flip</label>
       </label>
       <label>Focus
         <select id="afselect" title="continuous = AF every frame (hot); auto = AF once at start; manual = locked at specified distance (coolest)">
@@ -698,13 +815,22 @@ button:disabled { opacity: 0.65; cursor: progress; }
         </span>
       </label>
       <span class="buf-meter">Buffer
-        <span class="buf-bar"><div id="bufbar" style="width:0%"></div></span>
-        <span id="bufcount" style="color: var(--cyan);">0/15</span>
+        <span class="buf-leds" id="bufleds"></span>
+        <span id="bufcount">0/15</span>
       </span>
     </div>
     <div id="live-wrap">
       <img id="live-img" alt="live view">
       <span id="live-placeholder">// AWAITING FEED — PRESS INIT FEED</span>
+      <div class="hud-overlay" aria-hidden="true">
+        <span class="reticle r-tl"></span>
+        <span class="reticle r-tr"></span>
+        <span class="reticle r-bl"></span>
+        <span class="reticle r-br"></span>
+        <span class="crosshair"></span>
+        <span class="rec-dot" id="recdot"></span>
+        <span class="hud-params" id="hudparams">--</span>
+      </div>
     </div>
   </section>
   <section class="panel">
@@ -802,6 +928,7 @@ function renderStatus(s) {
   // ── Mirror to legacy elements (kept for now) ─────────
   $('bufN').textContent = s.buffer.count || s.buffer.max;
   $('bufcount').textContent = `${s.buffer.count}/${s.buffer.max}`;
+  renderBufLeds(s.buffer.count, s.buffer.max);
 }
 
 function renderBufSegs(count, max) {
@@ -815,6 +942,36 @@ function renderBufSegs(count, max) {
     kids[i].classList.toggle('lit', i < count);
   }
 }
+
+// Buffer LED row (in the live-controls strip)
+function renderBufLeds(count, max) {
+  const row = $('bufleds');
+  if (!row) return;
+  if (row.childElementCount !== max) {
+    row.innerHTML = '';
+    for (let i = 0; i < max; i++) row.appendChild(document.createElement('i'));
+  }
+  for (let i = 0; i < row.children.length; i++) {
+    row.children[i].classList.toggle('lit', i < count);
+  }
+  row.classList.toggle('full', count >= max);
+}
+
+// HUD params readout (res · quality · AF mode · rotation · flips)
+function updateHudParams() {
+  const params = $('hudparams');
+  if (!params) return;
+  const res = RES_LABELS[resselect.value] || resselect.value;
+  const af = afselect.value === 'manual'
+    ? `AF MAN · ${diopterLabel(lensSlider.value)}`
+    : (afselect.value === 'continuous' ? 'AF CONT' : 'AF AUTO');
+  const rot = parseInt(rotselect.value, 10) || 0;
+  const flips = (hflipCb.checked ? ' Hx' : '') + (vflipCb.checked ? ' Vx' : '');
+  params.textContent = `${res} · Q${_q} · ${af} · ROT${rot}°${flips}`;
+}
+
+// REC dot visibility (toggled by setLive)
+function setRecDot(on) { $('recdot').classList.toggle('on', !!on); }
 
 async function refreshShots() {
   try {
@@ -919,7 +1076,7 @@ function updateLensLabel() {
 function updateAfMode() {
   lensControls.style.display = (afselect.value === 'manual') ? 'inline-flex' : 'none';
 }
-updateLensLabel(); updateAfMode();
+updateLensLabel(); updateAfMode(); updateHudParams();
 
 function streamUrl() {
   liveres.textContent = RES_LABELS[resselect.value] || resselect.value;
@@ -954,12 +1111,15 @@ function setLive(on) {
     livePlaceholder.style.display = '';
     liveImg.src = streamUrl();
     liveBtn.innerHTML = '■ HALT FEED';
+    setRecDot(true);
+    updateHudParams();
   } else {
     _suppressErrUntil = Date.now() + 1500;
     liveImg.removeAttribute('src');
     livePlaceholder.style.display = '';
     livePlaceholder.textContent = '// AWAITING FEED — PRESS INIT FEED';
     liveBtn.innerHTML = '▶ INIT FEED';
+    setRecDot(false);
   }
 }
 function restart() { _suppressErrUntil = Date.now() + 1500; liveImg.src = streamUrl(); }
@@ -976,10 +1136,12 @@ qslider.addEventListener('input', () => { qval.textContent = qslider.value; });
 qslider.addEventListener('change', () => {
   _q = parseInt(qslider.value, 10);
   if (_live_on) { livePlaceholder.textContent = `quality → ${_q}…`; livePlaceholder.style.display = ''; setTimeout(restart, 180); }
+  updateHudParams();
 });
 resselect.addEventListener('change', () => {
   if (_live_on) { livePlaceholder.textContent = `switching to ${RES_LABELS[resselect.value]}…`; livePlaceholder.style.display = ''; restart(); }
   else { liveres.textContent = RES_LABELS[resselect.value]; }
+  updateHudParams();
 });
 
 function applyOrientation(restartIfLive) {
@@ -998,9 +1160,9 @@ function applyOrientation(restartIfLive) {
 }
 // Apply CSS transform once on load
 applyLiveTransform();
-rotselect.addEventListener('change', () => applyOrientation(true));
-hflipCb.addEventListener('change',  () => applyOrientation(true));
-vflipCb.addEventListener('change',  () => applyOrientation(true));
+rotselect.addEventListener('change', () => { applyOrientation(true); updateHudParams(); });
+hflipCb.addEventListener('change',  () => { applyOrientation(true); updateHudParams(); });
+vflipCb.addEventListener('change',  () => { applyOrientation(true); updateHudParams(); });
 afselect.addEventListener('change', () => {
   updateAfMode();
   saveOrient();
@@ -1009,9 +1171,10 @@ afselect.addEventListener('change', () => {
     livePlaceholder.style.display = '';
     restart();
   }
+  updateHudParams();
 });
 let _lensTimer = null;
-lensSlider.addEventListener('input', () => { updateLensLabel(); });
+lensSlider.addEventListener('input', () => { updateLensLabel(); updateHudParams(); });
 lensSlider.addEventListener('change', () => {
   saveOrient();
   if (_live_on && afselect.value === 'manual') {
@@ -1033,26 +1196,36 @@ captureBtn.addEventListener('click', async () => {
   if (captureBtn.disabled) return;
   const orig = captureBtn.innerHTML;
   captureBtn.disabled = true;
-  captureBtn.innerHTML = '💾 saving…';
+  captureBtn.classList.add('busy');
+  captureBtn.classList.remove('done');
+  captureBtn.innerHTML = '■ SAVING…';
   try {
     const rot = parseInt(rotselect.value, 10) || 0;
     const hf  = hflipCb.checked ? 1 : 0;
     const vf  = vflipCb.checked ? 1 : 0;
-    const r = await fetch(`/api/capture-buffer?rot=${rot}&hflip=${hf}&vflip=${vf}`, { method:'POST' });
+    const r = await fetch(`/api/capture-buffer?rot=${rot}&hflip=${hf}&vflip=${vf}`, { method: 'POST' });
     if (!r.ok) {
       const txt = await r.text();
-      appendLog({t:'', src:'sys', msg:`capture failed (${r.status}): ${txt}`});
-      captureBtn.innerHTML = '⚠️ ' + (r.status === 409 ? 'buffer empty' : 'failed');
+      appendLog({ t: '', src: 'sys', msg: `capture failed (${r.status}): ${txt}` });
+      captureBtn.classList.remove('busy');
+      captureBtn.innerHTML = r.status === 409 ? '⚠ BUFFER EMPTY' : '⚠ FAILED';
     } else {
       const o = await r.json();
-      captureBtn.innerHTML = `✓ ${o.saved} frames`;
+      captureBtn.classList.remove('busy');
+      captureBtn.classList.add('done');
+      captureBtn.innerHTML = `✓ ${o.saved} FRAMES`;
       refreshShots();
     }
   } catch (e) {
-    appendLog({t:'', src:'sys', msg:`capture error: ${e}`});
-    captureBtn.innerHTML = '⚠️ failed';
+    appendLog({ t: '', src: 'sys', msg: `capture error: ${e}` });
+    captureBtn.classList.remove('busy');
+    captureBtn.innerHTML = '⚠ FAILED';
   } finally {
-    setTimeout(() => { captureBtn.disabled = false; captureBtn.innerHTML = orig; }, 1800);
+    setTimeout(() => {
+      captureBtn.disabled = false;
+      captureBtn.classList.remove('busy', 'done');
+      captureBtn.innerHTML = orig;
+    }, 1800);
   }
 });
 
