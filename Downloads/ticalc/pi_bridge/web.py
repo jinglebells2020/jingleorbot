@@ -437,20 +437,84 @@ button:disabled { opacity: 0.65; cursor: progress; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { background: var(--border); }
 *::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
+
+/* HUD header */
+.hud-header {
+  display: grid;
+  grid-template-columns: 18px auto auto auto auto auto 1fr auto 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+  position: relative;
+}
+.hud-cap {
+  position: relative;
+  height: 1px;
+  background: var(--border);
+  align-self: end;
+  margin-bottom: 4px;
+}
+.hud-cap-l { grid-column: 1; }
+.hud-cap-r { grid-column: 9; }
+.hud-cap::before {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  width: 14px;
+  height: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.hud-cap-l::before { left: 0; border-left: 1px solid var(--border); transform: skewX(-30deg); transform-origin: bottom right; }
+.hud-cap-r::before { right: 0; border-right: 1px solid var(--border); transform: skewX(30deg); transform-origin: bottom left; }
+.hud-host { color: var(--muted); font-size: 11px; letter-spacing: 0.14em; font-variant-numeric: tabular-nums; }
+.hud-sep { color: var(--dim); font-size: 12px; }
+.hud-title { font-size: 14px; font-weight: 600; letter-spacing: 0.18em; color: var(--text); }
+.hud-timer {
+  color: var(--cyan);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px rgba(76, 201, 240, 0.4);
+}
+.hud-status {
+  color: var(--cyan);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-left: 14px;
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.hud-status.show { opacity: 1; }
+.hud-actions { grid-column: 8; display: flex; gap: 8px; justify-content: flex-end; }
+
+@media (max-width: 900px) {
+  .hud-header { grid-template-columns: 1fr; gap: 4px; padding: 8px; }
+  .hud-cap { display: none; }
+  .hud-actions { grid-column: 1; justify-content: flex-start; }
+}
 </style>
 </head>
 <body>
 
-<div>
-  <div class="title-row">
-    <h1>ticalc camera — live stream + buffer capture</h1>
-    <div style="display:flex; gap: 8px; align-items: center;">
-      <button class="primary" id="live">▶ Live view</button>
-      <button class="capture" id="capture">📸 Capture last <span id="bufN">15</span></button>
-    </div>
+<header class="hud-header">
+  <span class="hud-cap hud-cap-l"></span>
+  <span class="hud-host">{{PI_HOST}}</span>
+  <span class="hud-sep">·</span>
+  <h1 class="hud-title">TICALC.CAMERA</h1>
+  <span class="hud-sep">·</span>
+  <span class="hud-timer" id="mtimer">T+ 00:00:00</span>
+  <span class="hud-status" id="bootcap"></span>
+  <span class="hud-cap hud-cap-r"></span>
+  <div class="hud-actions">
+    <button class="primary" id="live">▶ INIT FEED</button>
+    <button class="capture" id="capture">◉ EXECUTE CAPTURE <span id="bufN">15</span></button>
   </div>
-  <div class="pills" id="status"></div>
-</div>
+</header>
+<div class="pills" id="status"></div>
 
 <div class="row">
   <section class="panel">
@@ -499,7 +563,7 @@ button:disabled { opacity: 0.65; cursor: progress; }
     </div>
     <div id="live-wrap">
       <img id="live-img" alt="live view">
-      <span id="live-placeholder">click ▶ Live view to start streaming</span>
+      <span id="live-placeholder">// AWAITING FEED — PRESS INIT FEED</span>
     </div>
   </section>
   <section class="panel">
@@ -567,6 +631,31 @@ async function refreshShots() {
 }
 setInterval(refreshShots, 4000);
 refreshShots();
+
+// ── Mission timer ───────────────────────────────────────────────
+(function startTimer() {
+  const tEl = $('mtimer');
+  const t0 = Date.now();
+  function tick() {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    tEl.textContent = `T+ ${hh}:${mm}:${ss}`;
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+
+// ── Boot pulse (one-shot) ───────────────────────────────────────
+(function bootPulse() {
+  const cap = $('bootcap');
+  cap.textContent = '// INITIALIZING TELEMETRY…';
+  cap.classList.add('show');
+  setTimeout(() => { cap.textContent = '// LINK ESTABLISHED'; }, 400);
+  setTimeout(() => { cap.classList.remove('show'); }, 800);
+  setTimeout(() => { cap.textContent = ''; }, 1100);
+})();
 
 // ── Live view ───────────────────────────────────────────────────
 const liveBtn = $('live');
@@ -660,13 +749,13 @@ function setLive(on) {
     livePlaceholder.textContent = 'connecting…';
     livePlaceholder.style.display = '';
     liveImg.src = streamUrl();
-    liveBtn.innerHTML = '⏹ Stop live view';
+    liveBtn.innerHTML = '■ HALT FEED';
   } else {
     _suppressErrUntil = Date.now() + 1500;
     liveImg.removeAttribute('src');
     livePlaceholder.style.display = '';
-    livePlaceholder.textContent = 'click ▶ Live view to start streaming';
-    liveBtn.innerHTML = '▶ Live view';
+    livePlaceholder.textContent = '// AWAITING FEED — PRESS INIT FEED';
+    liveBtn.innerHTML = '▶ INIT FEED';
   }
 }
 function restart() { _suppressErrUntil = Date.now() + 1500; liveImg.src = streamUrl(); }
@@ -795,7 +884,8 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split("?", 1)[0]
         if p == "/" or p == "/index.html":
-            self._send(200, INDEX_HTML, "text/html; charset=utf-8")
+            body = INDEX_HTML.replace("{{PI_HOST}}", PI_HOST)
+            self._send(200, body, "text/html; charset=utf-8")
         elif p == "/events":
             self._serve_sse()
         elif p == "/api/status":
