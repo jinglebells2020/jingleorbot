@@ -50,6 +50,7 @@ class State:
         self.batches_saved = 0
         self.last_batch = None
         self.last_batch_at = None
+        self.start_time = time.time()
         # Rolling JPEG buffer + its own lock so the proxy can update it
         # without contending with the bigger state lock.
         self.buffer_lock = threading.Lock()
@@ -90,6 +91,7 @@ def build_status():
         "last_batch": last,
         "last_batch_at": last_at,
         "save_dir": str(SAVE_DIR),
+        "uptime": int(time.time() - state.start_time),
     }
 
 
@@ -224,6 +226,87 @@ def capture_buffer(rot=0, hflip=False, vflip=False):
     subprocess.Popen(["open", str(batch_dir)],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return batch_dir, len(frames)
+
+
+def capture_snap(rot=0, hflip=False, vflip=False):
+    """Save the most recent frame only — single-frame snapshot.
+    Reuses the same orientation reasoning as capture_buffer."""
+    with state.buffer_lock:
+        if not state.frame_buffer:
+            push("sys", "snap: buffer empty (start live view first)")
+            return None
+        jpeg = state.frame_buffer[-1]
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    batch_dir = SAVE_DIR / f"snap_{ts}"
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    extra_rot = 90 if rot == 90 else 270 if rot == 270 else 0
+    extra_h = hflip and extra_rot != 0
+    extra_v = vflip and extra_rot != 0
+    out = _reorient_jpeg(jpeg, extra_rot, extra_h, extra_v) if (extra_rot or extra_h or extra_v) else jpeg
+    (batch_dir / "frame_01.jpg").write_bytes(out)
+    push("sys", f"snap -> {batch_dir.name}")
+    with state.lock:
+        state.batches_saved += 1
+        state.last_batch = batch_dir.name
+        state.last_batch_at = datetime.datetime.now()
+    push_status()
+    return batch_dir
+
+
+def delete_batch(name):
+    """Delete a capture/snap directory. Validates that it lives under SAVE_DIR
+    and matches our expected name prefix; refuses anything else."""
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        return False, "bad name"
+    if not (name.startswith("capture_") or name.startswith("snap_")):
+        return False, "not a capture directory"
+    d = SAVE_DIR / name
+    try:
+        d_real = d.resolve()
+        save_real = SAVE_DIR.resolve()
+    except OSError as e:
+        return False, str(e)
+    if save_real not in d_real.parents:
+        return False, "outside save dir"
+    if not d_real.is_dir():
+        return False, "no such batch"
+    for f in d_real.glob("*.jpg"):
+        try: f.unlink()
+        except OSError: pass
+    try:
+        d_real.rmdir()
+    except OSError as e:
+        return False, f"rmdir failed: {e}"
+    push("sys", f"deleted {name}")
+    push_status()
+    return True, None
+
+
+def rename_batch(name, new_name):
+    """Rename a batch dir. New name must match safe pattern."""
+    if not name or "/" in name or "\\" in name:
+        return False, "bad name"
+    if not new_name:
+        return False, "empty new name"
+    # Allow letters, digits, dash, underscore, dot; cap length
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", new_name):
+        return False, "new name has invalid chars (allowed: letters, digits, . _ -)"
+    if not (name.startswith("capture_") or name.startswith("snap_")):
+        return False, "not a capture directory"
+    src = SAVE_DIR / name
+    dst = SAVE_DIR / new_name
+    if not src.is_dir():
+        return False, "no such batch"
+    if dst.exists():
+        return False, "target name already exists"
+    try:
+        src.rename(dst)
+    except OSError as e:
+        return False, f"rename failed: {e}"
+    push("sys", f"renamed {name} -> {new_name}")
+    push_status()
+    return True, None
 
 
 # ── HTML ───────────────────────────────────────────────────────────
@@ -1366,8 +1449,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         p = self.path.split("?", 1)[0]
+        q = parse_qs(urlparse(self.path).query)
         if p == "/api/capture-buffer":
-            q = parse_qs(urlparse(self.path).query)
             rot   = int(q.get("rot",   ["0"])[0])
             hflip = q.get("hflip", ["0"])[0] in ("1", "true", "yes")
             vflip = q.get("vflip", ["0"])[0] in ("1", "true", "yes")
@@ -1378,13 +1461,42 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"saved": n, "name": batch_dir.name}),
                        "application/json")
             return
+        if p == "/api/snap":
+            rot   = int(q.get("rot",   ["0"])[0])
+            hflip = q.get("hflip", ["0"])[0] in ("1", "true", "yes")
+            vflip = q.get("vflip", ["0"])[0] in ("1", "true", "yes")
+            batch_dir = capture_snap(rot=rot, hflip=hflip, vflip=vflip)
+            if not batch_dir:
+                self._send(409, "buffer empty — start the live view first")
+                return
+            self._send(200, json.dumps({"saved": 1, "name": batch_dir.name}),
+                       "application/json")
+            return
+        if p == "/api/delete-batch":
+            name = q.get("name", [""])[0]
+            ok, err = delete_batch(name)
+            if not ok:
+                self._send(400, err or "delete failed")
+                return
+            self._send(200, json.dumps({"deleted": name}), "application/json")
+            return
+        if p == "/api/rename-batch":
+            name = q.get("name", [""])[0]
+            new_name = q.get("new_name", [""])[0]
+            ok, err = rename_batch(name, new_name)
+            if not ok:
+                self._send(400, err or "rename failed")
+                return
+            self._send(200, json.dumps({"renamed_to": new_name}), "application/json")
+            return
         self._send(404, "not found")
 
     # ── Batch listing & file serve ─────────────────────────────────
     def _list_batches(self):
         SAVE_DIR.mkdir(parents=True, exist_ok=True)
+        candidates = list(SAVE_DIR.glob("capture_*")) + list(SAVE_DIR.glob("snap_*"))
         out = []
-        for d in sorted(SAVE_DIR.glob("capture_*"), key=lambda p: p.stat().st_mtime, reverse=True):
+        for d in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True):
             if not d.is_dir(): continue
             frames = sorted(d.glob("frame_*.jpg"))
             age = time.time() - d.stat().st_mtime
