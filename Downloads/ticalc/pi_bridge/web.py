@@ -656,7 +656,11 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   opacity: 0;
   transition: opacity 200ms ease-out;
 }
-.hud-status.show { opacity: 1; }
+.hud-status.show       { opacity: 1; }
+.hud-status.show-cyan  { color: var(--cyan); }
+.hud-status.show-green { color: var(--green); }
+.hud-status.show-amber { color: var(--amber); }
+.hud-status.show-red   { color: var(--red); }
 .hud-actions { grid-column: 8; display: flex; gap: 8px; justify-content: flex-end; }
 
 @media (max-width: 900px) {
@@ -814,6 +818,28 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 }
 .rec-dot::after { content: "REC"; }
 @keyframes rec-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+.armed-pip {
+  position: absolute;
+  top: 14px; left: 18px;
+  display: none;
+  align-items: center;
+  gap: 7px;
+  color: var(--green);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(56, 214, 94, 0.5);
+}
+.armed-pip.on { display: inline-flex; }
+.armed-pip::before {
+  content: "";
+  display: inline-block;
+  width: 8px; height: 8px;
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(56, 214, 94, 0.75);
+}
+.armed-pip::after { content: "ARMED · 15"; }
 .hud-params {
   position: absolute;
   bottom: 12px; left: 14px;
@@ -989,6 +1015,7 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
         <span class="reticle r-br"></span>
         <span class="crosshair"></span>
         <span class="rec-dot" id="recdot"></span>
+        <span class="armed-pip" id="armedpip"></span>
         <span class="hud-params" id="hudparams">--</span>
       </div>
     </div>
@@ -1090,10 +1117,35 @@ function renderStatus(s) {
     $('v-bat-sub').textContent = 'no saves yet';
   }
 
-  // ── Mirror to legacy elements (kept for now) ─────────
-  $('bufN').textContent = s.buffer.count || s.buffer.max;
+  // ── Live UI mirrors ──────────────────────────────────
   $('bufcount').textContent = `${s.buffer.count}/${s.buffer.max}`;
   renderBufLeds(s.buffer.count, s.buffer.max);
+  updateCaptureBtn(s);
+  updateArmedPip(s);
+  handleBoot(s);  // also recovers / shows on link state changes
+}
+
+function updateCaptureBtn(s) {
+  // Don't fight in-flight busy/done states (handled by click handler)
+  if (captureBtn.classList.contains('busy') || captureBtn.classList.contains('done')) return;
+  if (s.buffer.count === 0) {
+    captureBtn.disabled = true;
+    captureBtn.classList.add('disarmed');
+    captureBtn.innerHTML = '◉ BUFFER NOT ARMED';
+  } else {
+    captureBtn.disabled = false;
+    captureBtn.classList.remove('disarmed');
+    captureBtn.innerHTML = `◉ EXECUTE CAPTURE <span id="bufN">${s.buffer.count}</span>`;
+  }
+  const snapBtn = $('snap');
+  if (snapBtn) {
+    snapBtn.disabled = s.buffer.count === 0;
+  }
+}
+
+function updateArmedPip(s) {
+  const pip = $('armedpip');
+  if (pip) pip.classList.toggle('on', s.buffer.count >= s.buffer.max);
 }
 
 function renderBufSegs(count, max) {
@@ -1173,15 +1225,60 @@ refreshShots();
   setInterval(tick, 1000);
 })();
 
-// ── Boot pulse (one-shot) ───────────────────────────────────────
-(function bootPulse() {
+// ── Boot caption — bound to first status, recovers on link change ──
+let _firstStatus = true;
+let _bootShowing = false;
+
+function setBootCapState(s) {
   const cap = $('bootcap');
-  cap.textContent = '// INITIALIZING TELEMETRY…';
-  cap.classList.add('show');
-  setTimeout(() => { cap.textContent = '// LINK ESTABLISHED'; }, 400);
-  setTimeout(() => { cap.classList.remove('show'); }, 800);
-  setTimeout(() => { cap.textContent = ''; }, 1100);
-})();
+  cap.classList.remove('show-cyan', 'show-green', 'show-amber', 'show-red');
+  if (s.pi.ping === 'up' && s.pi.http === 'ok') {
+    cap.classList.add('show-green');
+    cap.textContent = '// LINK ESTABLISHED';
+  } else if (s.pi.ping === 'up') {
+    cap.classList.add('show-amber');
+    cap.textContent = '// HTTP FAULT';
+  } else {
+    cap.classList.add('show-red');
+    cap.textContent = '// LINK LOST';
+  }
+}
+
+function handleBoot(s) {
+  const cap = $('bootcap');
+  const linkOk = s.pi.ping === 'up' && s.pi.http === 'ok';
+  const skipPulse = sessionStorage.getItem('ticalc.booted') === '1';
+
+  if (_firstStatus) {
+    _firstStatus = false;
+    if (!skipPulse) {
+      _bootShowing = true;
+      cap.classList.add('show', 'show-cyan');
+      cap.textContent = '// INITIALIZING TELEMETRY…';
+      setTimeout(() => { cap.classList.remove('show-cyan'); setBootCapState(s); }, 500);
+      setTimeout(() => {
+        sessionStorage.setItem('ticalc.booted', '1');
+        if (s.pi.ping === 'up' && s.pi.http === 'ok') {
+          cap.classList.remove('show'); _bootShowing = false;
+        }
+      }, 1800);
+    } else if (!linkOk) {
+      _bootShowing = true;
+      cap.classList.add('show');
+      setBootCapState(s);
+    }
+    return;
+  }
+  // Subsequent snapshots: recover or update message
+  if (_bootShowing) {
+    if (linkOk) { cap.classList.remove('show'); _bootShowing = false; }
+    else setBootCapState(s);
+  } else if (!linkOk) {
+    _bootShowing = true;
+    cap.classList.add('show');
+    setBootCapState(s);
+  }
+}
 
 // ── Live view ───────────────────────────────────────────────────
 const liveBtn = $('live');
