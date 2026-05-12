@@ -795,6 +795,19 @@ button:disabled { opacity: 0.65; cursor: progress; }
 .buf-leds.full > i.lit { background: var(--green); box-shadow: 0 0 6px rgba(56, 214, 94, 0.55); animation: breathe 2s ease-in-out infinite; }
 #bufcount { color: var(--cyan); font-weight: 500; font-variant-numeric: tabular-nums; }
 .buf-meter { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .vital-dot,
+  .buf-leds.full > i.lit,
+  .vital-segs > i.lit {
+    animation: none !important;
+  }
+  .rec-dot::before { animation: none !important; opacity: 1 !important; }
+  .hud-status { transition: none !important; }
+  #log .line { transition: none !important; }
+  #shots a, button, .panel, .panel::before { transition: none !important; }
+}
 </style>
 </head>
 <body>
@@ -914,7 +927,6 @@ button:disabled { opacity: 0.65; cursor: progress; }
 const $ = (id) => document.getElementById(id);
 const log = $('log');
 const shots = $('shots');
-const stat = $('status');
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
