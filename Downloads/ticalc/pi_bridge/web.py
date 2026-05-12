@@ -411,25 +411,91 @@ button:disabled { opacity: 0.65; cursor: progress; }
 .buf-bar { width: 80px; height: 6px; background: var(--bg-deep); border: 1px solid var(--border); overflow: hidden; }
 .buf-bar > div { height: 100%; background: var(--green); transition: width 150ms ease-out; }
 
-#log { flex: 1 1 0; min-height: 0; overflow-y: auto; font-size: 12px; padding-right: 4px; }
-#log .line { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
-#log .t { color: var(--muted); margin-right: 6px; }
-#log .s { color: var(--muted); margin-right: 6px; }
+#log {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 11px;
+  padding-right: 4px;
+  letter-spacing: 0.04em;
+}
+#log .line {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-left: 2px solid transparent;
+  padding-left: 8px;
+  margin-left: -8px;
+  transition: border-color 600ms ease-out, background 600ms ease-out;
+}
+#log .line.fresh {
+  border-left-color: var(--cyan);
+  background: rgba(76, 201, 240, 0.06);
+}
+#log .t {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+#log .s {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  min-width: 50px;
+  text-align: center;
+}
+#log .s.cam    { color: var(--cyan);     background: rgba(76, 201, 240, 0.10); }
+#log .s.net    { color: var(--ibm-blue); background: rgba(69, 137, 255, 0.10); }
+#log .s.sys    { color: var(--amber);    background: rgba(255, 183, 0,  0.10); }
+#log .s.stream { color: var(--green);    background: rgba(56, 214, 94,  0.10); }
+#log .m { color: var(--text); }
+#log .m::before { content: "▸ "; color: var(--muted); }
 
-#shots { display: grid; grid-template-columns: 1fr; gap: 6px; overflow-y: auto; flex: 1 1 0; min-height: 0; }
+#shots {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1 1 0;
+  min-height: 0;
+}
 #shots a {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 9px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   background: var(--bg-raised);
   color: var(--text);
   text-decoration: none;
   font-size: 12px;
-  transition: border-color 150ms ease-out, transform 150ms ease-out;
+  transition: border-color 150ms ease-out, transform 150ms ease-out, background 150ms ease-out;
 }
-#shots a:hover { border-color: var(--cyan); transform: translateX(4px); }
-#shots .name { color: var(--cyan); }
-#shots .meta { color: var(--muted); margin-left: auto; font-size: 11px; }
+#shots a::before {
+  content: "▣";
+  color: var(--cyan);
+  font-size: 12px;
+}
+#shots a:hover { border-color: var(--cyan); transform: translateX(4px); background: rgba(76, 201, 240, 0.06); }
+#shots .name { color: var(--cyan); font-weight: 500; letter-spacing: 0.04em; }
+#shots .meta {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 .empty { color: var(--muted); font-style: normal; padding: 4px 0; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
 
 /* Scrollbar polish */
@@ -855,9 +921,15 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&
 function appendLog(ev) {
   const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
   const div = document.createElement('div');
-  div.className = 'line';
-  div.innerHTML = `<span class="t">${esc(ev.t)}</span><span class="s">${esc(ev.src)}</span>${esc(ev.msg)}`;
+  const srcKey = String(ev.src || '').toLowerCase();
+  const srcClass = ['cam', 'net', 'sys', 'stream'].includes(srcKey) ? srcKey : '';
+  div.className = 'line fresh';
+  div.innerHTML =
+    `<span class="t">${esc(ev.t)}</span>` +
+    `<span class="s ${srcClass}">${esc(ev.src)}</span>` +
+    `<span class="m">${esc(ev.msg)}</span>`;
   log.appendChild(div);
+  setTimeout(() => div.classList.remove('fresh'), 700);
   while (log.childElementCount > 300) log.removeChild(log.firstChild);
   if (wasNearBottom) log.scrollTop = log.scrollHeight;
 }
@@ -979,13 +1051,13 @@ async function refreshShots() {
     const list = await r.json();
     $('batchcount').textContent = list.length ? `${list.length} total` : '';
     if (!list.length) {
-      shots.innerHTML = '<div class="empty">No captures yet. Start the live view and click 📸 Capture.</div>';
+      shots.innerHTML = '<div class="empty">// NO CAPTURES — INIT FEED &amp; EXECUTE CAPTURE</div>';
       return;
     }
     shots.innerHTML = list.slice(0, 30).map(b =>
       `<a href="/batch/${encodeURIComponent(b.name)}" target="_blank">
          <span class="name">${esc(b.name)}</span>
-         <span class="meta">${b.frames} frames · ${b.ago}</span>
+         <span class="meta">${b.frames} fr · ${b.ago}</span>
        </a>`
     ).join('');
   } catch (e) {}
