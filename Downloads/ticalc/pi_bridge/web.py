@@ -1,0 +1,1004 @@
+#!/usr/bin/env python3
+"""ticalc Pi camera — streaming + frame-buffer capture.
+
+Live MJPEG view of the Pi camera with adjustable quality and resolution.
+Keeps the last 15 frames in a rolling in-memory buffer; click "Capture"
+and the whole buffer gets dumped to ~/Downloads/ticalc-shots/capture_<ts>/
+as numbered JPEGs.
+
+Run:
+    python3 /Users/enes/Downloads/ticalc/pi_bridge/web.py
+Then open http://localhost:9090/
+"""
+
+import collections
+import datetime
+import http.client
+import io
+import json
+import mimetypes
+import queue
+import socket
+import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import unquote, urlparse, parse_qs
+
+try:
+    from PIL import Image
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+# ── Wiring ─────────────────────────────────────────────────────────
+PI_HOST      = "10.209.79.191"
+PI_HTTP_PORT = 8080
+LISTEN       = ("0.0.0.0", 9090)
+SAVE_DIR     = Path.home() / "Downloads" / "ticalc-shots"
+BUFFER_SIZE  = 15
+
+
+# ── Shared state ───────────────────────────────────────────────────
+class State:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.log = collections.deque(maxlen=600)
+        self.subscribers = set()           # SSE client queues
+        self.pi_status = {"ping": "?", "http": "?", "checked": None}
+        self.batches_saved = 0
+        self.last_batch = None
+        self.last_batch_at = None
+        # Rolling JPEG buffer + its own lock so the proxy can update it
+        # without contending with the bigger state lock.
+        self.buffer_lock = threading.Lock()
+        self.frame_buffer = collections.deque(maxlen=BUFFER_SIZE)
+        self.frames_seen = 0
+
+state = State()
+
+
+def now_str():
+    return datetime.datetime.now().strftime("%H:%M:%S")
+
+
+def push(src, msg):
+    evt = {"t": now_str(), "src": src, "msg": msg, "kind": "log"}
+    with state.lock:
+        state.log.append(evt)
+        subs = list(state.subscribers)
+    for q in subs:
+        try: q.put_nowait(evt)
+        except queue.Full: pass
+
+
+def build_status():
+    with state.lock:
+        pi = dict(state.pi_status)
+        batches = state.batches_saved
+        last = state.last_batch
+        last_at = state.last_batch_at.strftime("%H:%M:%S") if state.last_batch_at else None
+    pi["checked"] = pi["checked"].strftime("%H:%M:%S") if pi.get("checked") else None
+    with state.buffer_lock:
+        buf_count = len(state.frame_buffer)
+        frames_seen = state.frames_seen
+    return {
+        "pi": pi,
+        "buffer": {"count": buf_count, "max": BUFFER_SIZE, "frames_seen": frames_seen},
+        "batches_saved": batches,
+        "last_batch": last,
+        "last_batch_at": last_at,
+        "save_dir": str(SAVE_DIR),
+    }
+
+
+def push_status():
+    snap = build_status()
+    snap["kind"] = "status"
+    with state.lock:
+        subs = list(state.subscribers)
+    for q in subs:
+        try: q.put_nowait(snap)
+        except queue.Full: pass
+
+
+# ── Pi status poller ───────────────────────────────────────────────
+def _pi_check_once():
+    out = {"ping": "?", "http": "?", "checked": datetime.datetime.now()}
+    try:
+        r = subprocess.run(["ping", "-c", "1", "-W", "2000", PI_HOST],
+                           capture_output=True, timeout=3)
+        out["ping"] = "up" if r.returncode == 0 else "down"
+    except Exception:
+        out["ping"] = "err"
+    if out["ping"] != "up":
+        return out
+    try:
+        c = http.client.HTTPConnection(PI_HOST, PI_HTTP_PORT, timeout=2)
+        c.request("GET", "/health")
+        r = c.getresponse()
+        out["http"] = "ok" if r.status == 200 else f"http {r.status}"
+        r.read(); c.close()
+    except Exception as e:
+        out["http"] = f"down ({type(e).__name__})"
+    return out
+
+
+def pi_poller_loop():
+    while True:
+        info = _pi_check_once()
+        with state.lock:
+            state.pi_status = info
+        push_status()
+        time.sleep(8)
+
+
+# ── Frame parser helper (extracts complete JPEGs from a byte stream) ─
+def _emit_frames_into_buffer(scratch, chunk):
+    """Append `chunk` to `scratch`; push any complete JPEGs to the rolling
+    buffer. Returns the updated scratch (may have a partial frame left over)."""
+    scratch += chunk
+    SOI = b"\xff\xd8"; EOI = b"\xff\xd9"
+    while True:
+        s = scratch.find(SOI)
+        if s < 0:
+            # Trim runaway garbage if no SOI ever found
+            if len(scratch) > 65536:
+                scratch = b""
+            return scratch
+        e = scratch.find(EOI, s + 2)
+        if e < 0:
+            # Partial JPEG — keep from SOI onward
+            if s > 0:
+                scratch = scratch[s:]
+            return scratch
+        frame = scratch[s:e + 2]
+        scratch = scratch[e + 2:]
+        with state.buffer_lock:
+            state.frame_buffer.append(frame)
+            state.frames_seen += 1
+
+
+# ── Capture-buffer: dump rolling buffer to disk ────────────────────
+def _reorient_jpeg(jpeg_bytes, rot, hflip, vflip):
+    """Apply rotation (0/90/180/270) + flips to a JPEG; returns new bytes.
+    Falls back to original bytes if PIL isn't available or rot/flip are no-ops.
+    Rotation here is applied AFTER what the camera already did, so this only
+    needs to handle the 90°/270° cases plus any client-only flip requests."""
+    rot = int(rot) % 360
+    if not HAS_PIL or (rot == 0 and not hflip and not vflip):
+        return jpeg_bytes
+    try:
+        im = Image.open(io.BytesIO(jpeg_bytes))
+        # Order matches what the user expects: rotate first, then flip.
+        if rot == 90:   im = im.transpose(Image.ROTATE_90)
+        elif rot == 180: im = im.transpose(Image.ROTATE_180)
+        elif rot == 270: im = im.transpose(Image.ROTATE_270)
+        if hflip: im = im.transpose(Image.FLIP_LEFT_RIGHT)
+        if vflip: im = im.transpose(Image.FLIP_TOP_BOTTOM)
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=88)
+        return out.getvalue()
+    except Exception as e:
+        push("sys", f"reorient failed: {e}")
+        return jpeg_bytes
+
+
+def capture_buffer(rot=0, hflip=False, vflip=False):
+    with state.buffer_lock:
+        frames = list(state.frame_buffer)
+    if not frames:
+        push("sys", "capture-buffer: buffer empty (start live view first)")
+        return None, 0
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    batch_dir = SAVE_DIR / f"capture_{ts}"
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    # Note: the camera already applied 180° (via hflip+vflip on the Pi) for us
+    # if requested. We only need to apply the rotation amount that hardware
+    # couldn't do (90/270) plus any client-only flip toggling above 180°.
+    # Since we asked the Pi to xor hflip/vflip with (rot==180), undo that here
+    # so the saved file matches what the client expects.
+    cam_h = bool(hflip) ^ (rot == 180)
+    cam_v = bool(vflip) ^ (rot == 180)
+    # Frames coming back from the buffer have cam_h/cam_v already applied.
+    # We still need to rotate by 90/270 (if applicable) and apply any extra
+    # flips the camera didn't do. After camera-applied flips, the remaining
+    # client-side rotation is rot if rot in {90,270} else 0 (180 is fully
+    # absorbed by camera). The H/V flip net is already what user asked for,
+    # so no extra flip needed here unless rot is 90/270 + flip requested.
+    extra_rot = 90 if rot == 90 else 270 if rot == 270 else 0
+    extra_h = hflip and extra_rot != 0
+    extra_v = vflip and extra_rot != 0
+    if extra_rot != 0 or extra_h or extra_v:
+        push("sys", f"reorienting frames: rot={extra_rot}° hflip={extra_h} vflip={extra_v}")
+    for i, jpeg in enumerate(frames, 1):
+        out = _reorient_jpeg(jpeg, extra_rot, extra_h, extra_v) if (extra_rot or extra_h or extra_v) else jpeg
+        (batch_dir / f"frame_{i:02d}.jpg").write_bytes(out)
+    push("sys", f"saved {len(frames)} frames -> {batch_dir.name}")
+    with state.lock:
+        state.batches_saved += 1
+        state.last_batch = batch_dir.name
+        state.last_batch_at = datetime.datetime.now()
+    push_status()
+    subprocess.Popen(["open", str(batch_dir)],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return batch_dir, len(frames)
+
+
+# ── HTML ───────────────────────────────────────────────────────────
+INDEX_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ticalc camera</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg-deep:    #04060a;
+  --bg-panel:   #0a0e1a;
+  --bg-raised:  #0f1422;
+  --border:     #1c2538;
+  --border-hi:  #2a3a5c;
+  --ibm-blue:   #4589ff;
+  --cyan:       #4cc9f0;
+  --amber:      #ffb700;
+  --green:      #38d65e;
+  --red:        #ff5d6c;
+  --text:       #c8d4e8;
+  --muted:      #5b6985;
+  --dim:        #3a4459;
+  --font-mono:  "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --panel-clip: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  --panel-clip-inner: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg-deep);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  font-feature-settings: "ss02", "zero";
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 12px;
+  padding: 14px;
+  background-image: radial-gradient(rgba(76, 201, 240, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+h1 { font-size: 13px; margin: 0; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text); }
+h2 { font-size: 10px; margin: 0; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+
+/* Panel chrome — chamfered HUD frame */
+.panel {
+  position: relative;
+  padding: 26px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  isolation: isolate;
+}
+.panel::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: var(--border);
+  clip-path: var(--panel-clip);
+  z-index: -2;
+  transition: background 180ms ease-out;
+}
+.panel::after {
+  content: "";
+  position: absolute; inset: 1px;
+  background: var(--bg-panel);
+  clip-path: var(--panel-clip-inner);
+  z-index: -1;
+  box-shadow: 0 4px 32px rgba(76, 201, 240, 0.04);
+}
+.panel:hover::before { background: var(--border-hi); }
+
+.panel-tab {
+  position: absolute;
+  top: 4px;
+  left: 18px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  background: var(--bg-deep);
+  padding: 2px 8px;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+/* Buttons */
+button {
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 9px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: border-color 150ms ease-out, color 150ms ease-out, background 150ms ease-out;
+}
+button:hover { border-color: var(--cyan); color: var(--cyan); }
+button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+button.primary { background: var(--cyan); color: #03121b; border-color: var(--cyan); font-weight: 600; }
+button.primary:hover { color: #03121b; background: #6fd6f3; }
+button.capture { background: var(--cyan); color: #03121b; border-color: var(--cyan); font-weight: 600; }
+button.capture:hover { color: #03121b; background: #6fd6f3; }
+button.capture.busy { background: var(--amber); border-color: var(--amber); color: #1a1108; }
+button.capture.done { background: var(--green); border-color: var(--green); color: #03150a; }
+button:disabled { opacity: 0.65; cursor: progress; }
+
+/* Layout grid */
+.row { display: grid; grid-template-columns: 1fr 320px; gap: 12px; min-height: 0; }
+@media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+
+/* Provisional new-token styling for existing component classes (refined in later tasks) */
+.pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 5px 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.pill.ok .dot { background: var(--green); }
+.pill.bad .dot { background: var(--red); }
+.pill.unknown .dot { background: var(--amber); }
+.pill b { color: var(--cyan); font-weight: 500; }
+
+.title-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+
+.live-controls {
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.live-controls label { display: inline-flex; align-items: center; gap: 6px; }
+.live-controls select,
+.live-controls input[type=range] {
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 4px 7px;
+  font: inherit;
+  font-size: 11px;
+  text-transform: none;
+}
+.live-controls select:focus,
+.live-controls input[type=range]:focus { outline: none; border-color: var(--cyan); }
+.qv { color: var(--cyan); min-width: 30px; text-align: right; font-weight: 500; }
+
+#live-wrap {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  height: 60vh; max-height: 75vh;
+  background: #000;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+#live-img { width: 100%; height: 100%; object-fit: contain; display: block;
+  transform-origin: center center; transition: transform 0.15s ease; }
+#live-placeholder {
+  position: absolute;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.buf-meter { display: inline-flex; align-items: center; gap: 8px; }
+.buf-bar { width: 80px; height: 6px; background: var(--bg-deep); border: 1px solid var(--border); overflow: hidden; }
+.buf-bar > div { height: 100%; background: var(--green); transition: width 150ms ease-out; }
+
+#log { flex: 1 1 0; min-height: 0; overflow-y: auto; font-size: 12px; padding-right: 4px; }
+#log .line { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+#log .t { color: var(--muted); margin-right: 6px; }
+#log .s { color: var(--muted); margin-right: 6px; }
+
+#shots { display: grid; grid-template-columns: 1fr; gap: 6px; overflow-y: auto; flex: 1 1 0; min-height: 0; }
+#shots a {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 12px;
+  transition: border-color 150ms ease-out, transform 150ms ease-out;
+}
+#shots a:hover { border-color: var(--cyan); transform: translateX(4px); }
+#shots .name { color: var(--cyan); }
+#shots .meta { color: var(--muted); margin-left: auto; font-size: 11px; }
+.empty { color: var(--muted); font-style: normal; padding: 4px 0; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+
+/* Scrollbar polish */
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); }
+*::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
+</style>
+</head>
+<body>
+
+<div>
+  <div class="title-row">
+    <h1>ticalc camera — live stream + buffer capture</h1>
+    <div style="display:flex; gap: 8px; align-items: center;">
+      <button class="primary" id="live">▶ Live view</button>
+      <button class="capture" id="capture">📸 Capture last <span id="bufN">15</span></button>
+    </div>
+  </div>
+  <div class="pills" id="status"></div>
+</div>
+
+<div class="row">
+  <section class="panel">
+    <span class="panel-tab">// CAM-01 · LIVE</span>
+    <div class="live-controls">
+      <span>Live · <span id="liveres">1920×1080 @ 15fps</span></span>
+      <label>Resolution
+        <select id="resselect">
+          <option value="hd">720p · ~20 fps</option>
+          <option value="fhd" selected>1080p · ~15 fps</option>
+          <option value="qhd">1296p · ~12 fps</option>
+          <option value="uhd">4K (2160p) · ~8 fps</option>
+          <option value="max">2592p (sensor max) · ~6 fps</option>
+        </select>
+      </label>
+      <label>Quality
+        <input type="range" id="qslider" min="20" max="90" step="5" value="60" style="width: 110px;">
+        <span class="qv" id="qval">60</span>
+      </label>
+      <label>Orientation
+        <select id="rotselect">
+          <option value="0">0°</option>
+          <option value="90">90° ↻</option>
+          <option value="180">180°</option>
+          <option value="270">270° ↺</option>
+        </select>
+        <button id="rotbtn" title="Rotate 90° clockwise" type="button" style="padding: 3px 7px; margin-left: 2px;">↻</button>
+        <label style="margin-left: 6px;"><input type="checkbox" id="hflip"> H-flip</label>
+        <label><input type="checkbox" id="vflip"> V-flip</label>
+      </label>
+      <label>Focus
+        <select id="afselect" title="continuous = AF every frame (hot); auto = AF once at start; manual = locked at specified distance (coolest)">
+          <option value="continuous">Continuous AF</option>
+          <option value="auto">Auto (one shot)</option>
+          <option value="manual">Manual (locked)</option>
+        </select>
+        <span id="lens-controls" style="display:none; align-items:center; gap:4px;">
+          <input type="range" id="lens" min="0" max="10" step="0.25" value="5" style="width:90px;">
+          <span class="qv" id="lensval" style="min-width:60px; text-align:left;">5.0D · 20cm</span>
+        </span>
+      </label>
+      <span class="buf-meter">Buffer
+        <span class="buf-bar"><div id="bufbar" style="width:0%"></div></span>
+        <span id="bufcount" style="color: var(--cyan);">0/15</span>
+      </span>
+    </div>
+    <div id="live-wrap">
+      <img id="live-img" alt="live view">
+      <span id="live-placeholder">click ▶ Live view to start streaming</span>
+    </div>
+  </section>
+  <section class="panel">
+    <span class="panel-tab">// REC-09 · CAPTURES <span id="batchcount" style="color: var(--muted); margin-left: 6px;"></span></span>
+    <div id="shots"><div class="empty">// NO CAPTURES — INIT FEED &amp; EXECUTE CAPTURE</div></div>
+  </section>
+</div>
+
+<section class="panel" style="max-height: 200px;">
+  <span class="panel-tab">// LOG-00 · TX</span>
+  <div id="log"></div>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const log = $('log');
+const shots = $('shots');
+const stat = $('status');
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function appendLog(ev) {
+  const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+  const div = document.createElement('div');
+  div.className = 'line';
+  div.innerHTML = `<span class="t">${esc(ev.t)}</span><span class="s">${esc(ev.src)}</span>${esc(ev.msg)}`;
+  log.appendChild(div);
+  while (log.childElementCount > 300) log.removeChild(log.firstChild);
+  if (wasNearBottom) log.scrollTop = log.scrollHeight;
+}
+
+function renderStatus(s) {
+  const pingOk = s.pi.ping === 'up';
+  const httpOk = s.pi.http === 'ok';
+  const pills = [
+    `<span class="pill ${pingOk?'ok':(s.pi.ping==='?'?'unknown':'bad')}"><span class="dot"></span><b>Pi</b> ${esc(s.pi.ping)}</span>`,
+    `<span class="pill ${httpOk?'ok':(s.pi.http==='?'?'unknown':'bad')}"><span class="dot"></span><b>HTTP</b> ${esc(s.pi.http)}</span>`,
+    `<span class="pill ${s.buffer.count>0?'ok':'unknown'}"><span class="dot"></span><b>buffer</b> ${s.buffer.count}/${s.buffer.max} · seen ${s.buffer.frames_seen}</span>`,
+    `<span class="pill ${s.batches_saved>0?'ok':'unknown'}"><span class="dot"></span><b>saved</b> ${s.batches_saved}${s.last_batch?' · '+esc(s.last_batch)+' @ '+esc(s.last_batch_at||''):''}</span>`,
+  ];
+  stat.innerHTML = pills.join('');
+  // buffer meter
+  const pct = Math.round((s.buffer.count / s.buffer.max) * 100);
+  $('bufbar').style.width = pct + '%';
+  $('bufcount').textContent = `${s.buffer.count}/${s.buffer.max}`;
+  $('bufN').textContent = s.buffer.count || s.buffer.max;
+}
+
+async function refreshShots() {
+  try {
+    const r = await fetch('/shots');
+    const list = await r.json();
+    $('batchcount').textContent = list.length ? `${list.length} total` : '';
+    if (!list.length) {
+      shots.innerHTML = '<div class="empty">No captures yet. Start the live view and click 📸 Capture.</div>';
+      return;
+    }
+    shots.innerHTML = list.slice(0, 30).map(b =>
+      `<a href="/batch/${encodeURIComponent(b.name)}" target="_blank">
+         <span class="name">${esc(b.name)}</span>
+         <span class="meta">${b.frames} frames · ${b.ago}</span>
+       </a>`
+    ).join('');
+  } catch (e) {}
+}
+setInterval(refreshShots, 4000);
+refreshShots();
+
+// ── Live view ───────────────────────────────────────────────────
+const liveBtn = $('live');
+const liveImg = $('live-img');
+const livePlaceholder = $('live-placeholder');
+const qslider = $('qslider');
+const qval = $('qval');
+const resselect = $('resselect');
+const liveres = $('liveres');
+const RES_LABELS = {
+  hd:  '1280×720 @ ~20fps', fhd: '1920×1080 @ ~15fps',
+  qhd: '2304×1296 @ ~12fps', uhd: '3840×2160 (4K) @ ~8fps',
+  max: '4608×2592 (sensor max) @ ~6fps',
+};
+let _live_on = false, _q = parseInt(qslider.value, 10);
+let _suppressErrUntil = 0, _retryTimer = null;
+
+// ── Orientation + focus (persists across reloads) ─────────────
+const rotselect = $('rotselect');
+const rotbtn = $('rotbtn');
+const hflipCb = $('hflip');
+const vflipCb = $('vflip');
+const afselect = $('afselect');
+const lensSlider = $('lens');
+const lensVal = $('lensval');
+const lensControls = $('lens-controls');
+try {
+  const saved = JSON.parse(localStorage.getItem('ticalc.orient') || '{}');
+  if (saved.rot   != null) rotselect.value = String(saved.rot);
+  if (saved.hflip != null) hflipCb.checked = !!saved.hflip;
+  if (saved.vflip != null) vflipCb.checked = !!saved.vflip;
+  if (saved.af)            afselect.value = saved.af;
+  if (saved.lens  != null) lensSlider.value = String(saved.lens);
+} catch (e) {}
+function saveOrient() {
+  try {
+    localStorage.setItem('ticalc.orient', JSON.stringify({
+      rot:   parseInt(rotselect.value, 10),
+      hflip: hflipCb.checked,
+      vflip: vflipCb.checked,
+      af:    afselect.value,
+      lens:  parseFloat(lensSlider.value),
+    }));
+  } catch (e) {}
+}
+// Diopters to distance label
+function diopterLabel(d) {
+  d = parseFloat(d);
+  if (d <= 0.05) return `${d.toFixed(1)}D · ∞`;
+  const m = 1 / d;
+  if (m >= 1)  return `${d.toFixed(1)}D · ${m.toFixed(2)}m`;
+  return `${d.toFixed(1)}D · ${Math.round(m * 100)}cm`;
+}
+function updateLensLabel() {
+  lensVal.textContent = diopterLabel(lensSlider.value);
+}
+function updateAfMode() {
+  lensControls.style.display = (afselect.value === 'manual') ? 'inline-flex' : 'none';
+}
+updateLensLabel(); updateAfMode();
+
+function streamUrl() {
+  liveres.textContent = RES_LABELS[resselect.value] || resselect.value;
+  const rot = parseInt(rotselect.value, 10) || 0;
+  const hf  = hflipCb.checked ? 1 : 0;
+  const vf  = vflipCb.checked ? 1 : 0;
+  const af  = afselect.value;
+  const lens = parseFloat(lensSlider.value);
+  let lensQ = '';
+  if (af === 'manual') lensQ = `&lens=${lens}`;
+  return `/stream.mjpeg?res=${resselect.value}&q=${_q}&rot=${rot}&hflip=${hf}&vflip=${vf}&af=${af}${lensQ}&ts=${Date.now()}`;
+}
+// Apply visual rotation to the live <img>. Hardware does 0/180; we add the
+// remainder (90/270) here. Hflip/vflip in 90/270 modes also need a client
+// flip because they're meaningless to send to the camera at those rotations.
+function applyLiveTransform() {
+  const rot = parseInt(rotselect.value, 10) || 0;
+  const cssRot = (rot === 90 || rot === 270) ? rot : 0;
+  let scaleX = 1, scaleY = 1;
+  if (cssRot !== 0) {
+    if (hflipCb.checked) scaleX = -1;
+    if (vflipCb.checked) scaleY = -1;
+  }
+  liveImg.style.transform =
+    `rotate(${cssRot}deg) scale(${scaleX}, ${scaleY})`;
+}
+function setLive(on) {
+  _live_on = on;
+  if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null; }
+  if (on) {
+    livePlaceholder.textContent = 'connecting…';
+    livePlaceholder.style.display = '';
+    liveImg.src = streamUrl();
+    liveBtn.innerHTML = '⏹ Stop live view';
+  } else {
+    _suppressErrUntil = Date.now() + 1500;
+    liveImg.removeAttribute('src');
+    livePlaceholder.style.display = '';
+    livePlaceholder.textContent = 'click ▶ Live view to start streaming';
+    liveBtn.innerHTML = '▶ Live view';
+  }
+}
+function restart() { _suppressErrUntil = Date.now() + 1500; liveImg.src = streamUrl(); }
+liveBtn.addEventListener('click', () => setLive(!_live_on));
+liveImg.addEventListener('load', () => { livePlaceholder.style.display = 'none'; if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null; } });
+liveImg.addEventListener('error', () => {
+  if (Date.now() < _suppressErrUntil || !_live_on) return;
+  livePlaceholder.textContent = 'stream paused — reconnecting…';
+  livePlaceholder.style.display = '';
+  if (_retryTimer) clearTimeout(_retryTimer);
+  _retryTimer = setTimeout(() => { if (_live_on) restart(); }, 2000);
+});
+qslider.addEventListener('input', () => { qval.textContent = qslider.value; });
+qslider.addEventListener('change', () => {
+  _q = parseInt(qslider.value, 10);
+  if (_live_on) { livePlaceholder.textContent = `quality → ${_q}…`; livePlaceholder.style.display = ''; setTimeout(restart, 180); }
+});
+resselect.addEventListener('change', () => {
+  if (_live_on) { livePlaceholder.textContent = `switching to ${RES_LABELS[resselect.value]}…`; livePlaceholder.style.display = ''; restart(); }
+  else { liveres.textContent = RES_LABELS[resselect.value]; }
+});
+
+function applyOrientation(restartIfLive) {
+  saveOrient();
+  applyLiveTransform();
+  if (_live_on && restartIfLive) {
+    // Only restart the stream when the camera-side state changed (180° via
+    // hflip+vflip on the Pi). 90/270 rotations are pure CSS — no restart.
+    const rot = parseInt(rotselect.value, 10) || 0;
+    if (rot === 0 || rot === 180) {
+      livePlaceholder.textContent = `orientation → ${rot}°…`;
+      livePlaceholder.style.display = '';
+      restart();
+    }
+  }
+}
+// Apply CSS transform once on load
+applyLiveTransform();
+rotselect.addEventListener('change', () => applyOrientation(true));
+hflipCb.addEventListener('change',  () => applyOrientation(true));
+vflipCb.addEventListener('change',  () => applyOrientation(true));
+afselect.addEventListener('change', () => {
+  updateAfMode();
+  saveOrient();
+  if (_live_on) {
+    livePlaceholder.textContent = `focus → ${afselect.value}…`;
+    livePlaceholder.style.display = '';
+    restart();
+  }
+});
+let _lensTimer = null;
+lensSlider.addEventListener('input', () => { updateLensLabel(); });
+lensSlider.addEventListener('change', () => {
+  saveOrient();
+  if (_live_on && afselect.value === 'manual') {
+    if (_lensTimer) clearTimeout(_lensTimer);
+    livePlaceholder.textContent = `focus → ${diopterLabel(lensSlider.value)}…`;
+    livePlaceholder.style.display = '';
+    _lensTimer = setTimeout(restart, 200);
+  }
+});
+rotbtn.addEventListener('click', () => {
+  const cur = parseInt(rotselect.value, 10) || 0;
+  rotselect.value = String((cur + 90) % 360);
+  applyOrientation(true);
+});
+
+// ── Capture buffer ──────────────────────────────────────────────
+const captureBtn = $('capture');
+captureBtn.addEventListener('click', async () => {
+  if (captureBtn.disabled) return;
+  const orig = captureBtn.innerHTML;
+  captureBtn.disabled = true;
+  captureBtn.innerHTML = '💾 saving…';
+  try {
+    const rot = parseInt(rotselect.value, 10) || 0;
+    const hf  = hflipCb.checked ? 1 : 0;
+    const vf  = vflipCb.checked ? 1 : 0;
+    const r = await fetch(`/api/capture-buffer?rot=${rot}&hflip=${hf}&vflip=${vf}`, { method:'POST' });
+    if (!r.ok) {
+      const txt = await r.text();
+      appendLog({t:'', src:'sys', msg:`capture failed (${r.status}): ${txt}`});
+      captureBtn.innerHTML = '⚠️ ' + (r.status === 409 ? 'buffer empty' : 'failed');
+    } else {
+      const o = await r.json();
+      captureBtn.innerHTML = `✓ ${o.saved} frames`;
+      refreshShots();
+    }
+  } catch (e) {
+    appendLog({t:'', src:'sys', msg:`capture error: ${e}`});
+    captureBtn.innerHTML = '⚠️ failed';
+  } finally {
+    setTimeout(() => { captureBtn.disabled = false; captureBtn.innerHTML = orig; }, 1800);
+  }
+});
+
+// ── SSE ─────────────────────────────────────────────────────────
+const ev = new EventSource('/events');
+ev.onmessage = (m) => {
+  try {
+    const o = JSON.parse(m.data);
+    if (o.kind === 'log') appendLog(o);
+    else if (o.kind === 'status') renderStatus(o);
+  } catch(e) {}
+};
+fetch('/api/status').then(r => r.json()).then(renderStatus);
+</script>
+</body>
+</html>
+"""
+
+
+# ── HTTP handler ───────────────────────────────────────────────────
+class _Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args): return
+
+    def _send(self, code, body, ctype="text/plain; charset=utf-8"):
+        if isinstance(body, str): body = body.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        p = self.path.split("?", 1)[0]
+        if p == "/" or p == "/index.html":
+            self._send(200, INDEX_HTML, "text/html; charset=utf-8")
+        elif p == "/events":
+            self._serve_sse()
+        elif p == "/api/status":
+            self._send(200, json.dumps(build_status()), "application/json")
+        elif p == "/shots":
+            self._send(200, json.dumps(self._list_batches()), "application/json")
+        elif p.startswith("/batch/"):
+            self._serve_batch_index(unquote(p[len("/batch/"):]))
+        elif p.startswith("/batchfile/"):
+            self._serve_batch_file(unquote(p[len("/batchfile/"):]))
+        elif p == "/stream.mjpeg":
+            self._proxy_stream(self.path)
+        elif p == "/health":
+            self._send(200, "ok")
+        else:
+            self._send(404, "not found")
+
+    def do_POST(self):
+        p = self.path.split("?", 1)[0]
+        if p == "/api/capture-buffer":
+            q = parse_qs(urlparse(self.path).query)
+            rot   = int(q.get("rot",   ["0"])[0])
+            hflip = q.get("hflip", ["0"])[0] in ("1", "true", "yes")
+            vflip = q.get("vflip", ["0"])[0] in ("1", "true", "yes")
+            batch_dir, n = capture_buffer(rot=rot, hflip=hflip, vflip=vflip)
+            if not batch_dir:
+                self._send(409, "buffer empty — start the live view first")
+                return
+            self._send(200, json.dumps({"saved": n, "name": batch_dir.name}),
+                       "application/json")
+            return
+        self._send(404, "not found")
+
+    # ── Batch listing & file serve ─────────────────────────────────
+    def _list_batches(self):
+        SAVE_DIR.mkdir(parents=True, exist_ok=True)
+        out = []
+        for d in sorted(SAVE_DIR.glob("capture_*"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if not d.is_dir(): continue
+            frames = sorted(d.glob("frame_*.jpg"))
+            age = time.time() - d.stat().st_mtime
+            out.append({"name": d.name, "frames": len(frames),
+                        "mtime": d.stat().st_mtime,
+                        "ago": _humanize(age)})
+        return out
+
+    def _serve_batch_index(self, name):
+        d = SAVE_DIR / Path(name).name
+        if not d.is_dir():
+            self._send(404, "no such batch"); return
+        frames = sorted(d.glob("frame_*.jpg"))
+        items = "".join(
+            f'<a href="/batchfile/{name}/{f.name}" target="_blank" style="display:inline-block; margin: 4px;">'
+            f'<img src="/batchfile/{name}/{f.name}" style="height:140px; border-radius:6px; border: 1px solid #262a32;"></a>'
+            for f in frames
+        )
+        html = (f"<!doctype html><html><body style='background:#0e0f12;color:#d6d9df;font-family:system-ui;padding:14px'>"
+                f"<h2 style='font-weight:500'>{name}</h2>"
+                f"<p style='color:#7d8390'>{len(frames)} frames</p>"
+                f"<div>{items}</div></body></html>")
+        self._send(200, html, "text/html; charset=utf-8")
+
+    def _serve_batch_file(self, rel):
+        parts = Path(rel).parts
+        if len(parts) != 2:
+            self._send(404, "bad path"); return
+        f = SAVE_DIR / parts[0] / parts[1]
+        if not f.is_file() or not f.name.endswith(".jpg"):
+            self._send(404, "not found"); return
+        ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+        self._send(200, f.read_bytes(), ctype)
+
+    # ── Stream proxy with side-channel buffer feed ─────────────────
+    def _proxy_stream(self, path):
+        """Raw TCP tunnel to Pi's /stream.mjpeg. Parses every chunk for
+        complete JPEGs and pushes them into the rolling frame buffer so a
+        click on Capture can grab the last N frames."""
+        try:
+            sock = socket.create_connection((PI_HOST, PI_HTTP_PORT), timeout=10)
+        except Exception as e:
+            self._send(502, f"upstream connect failed: {e}")
+            return
+        try:
+            req = (f"GET {path} HTTP/1.0\r\n"
+                   f"Host: {PI_HOST}:{PI_HTTP_PORT}\r\n"
+                   f"Accept: */*\r\n"
+                   f"Connection: close\r\n\r\n").encode("utf-8")
+            sock.sendall(req)
+            sock.settimeout(None)
+
+            # We need to split off the response headers before we start feeding
+            # the buffer (otherwise we'd find the status line garbage and miss
+            # the SOI/EOI of the first JPEG). Read until we see CRLFCRLF.
+            head = b""
+            while b"\r\n\r\n" not in head:
+                ch = sock.recv(4096)
+                if not ch:
+                    return
+                head += ch
+                if len(head) > 32768:
+                    return
+            hsplit = head.find(b"\r\n\r\n") + 4
+            header_bytes = head[:hsplit]
+            body_so_far  = head[hsplit:]
+
+            # Forward headers + initial body bytes to the browser
+            try:
+                self.wfile.write(header_bytes)
+                if body_so_far:
+                    self.wfile.write(body_so_far)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
+
+            scratch = body_so_far
+            scratch = _emit_frames_into_buffer(b"", scratch)
+
+            while True:
+                try:
+                    chunk = sock.recv(8192)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    break
+                scratch = _emit_frames_into_buffer(scratch, chunk)
+                push_status_throttled()
+        finally:
+            try: sock.close()
+            except Exception: pass
+
+    # ── SSE ────────────────────────────────────────────────────────
+    def _serve_sse(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        q = queue.Queue(maxsize=500)
+        with state.lock:
+            state.subscribers.add(q)
+            backlog = list(state.log)[-100:]
+        try:
+            snap = build_status(); snap["kind"] = "status"
+            self._sse_send(snap)
+            for evt in backlog:
+                self._sse_send(evt)
+            while True:
+                try:
+                    evt = q.get(timeout=15)
+                    self._sse_send(evt)
+                except queue.Empty:
+                    try:
+                        self.wfile.write(b": ka\n\n"); self.wfile.flush()
+                    except Exception:
+                        break
+        except Exception:
+            pass
+        finally:
+            with state.lock:
+                state.subscribers.discard(q)
+
+    def _sse_send(self, obj):
+        line = "data: " + json.dumps(obj) + "\n\n"
+        self.wfile.write(line.encode("utf-8")); self.wfile.flush()
+
+
+# Throttle status broadcasts to ~2 Hz while frames pour in.
+_status_throttle_last = [0.0]
+def push_status_throttled():
+    now = time.monotonic()
+    if now - _status_throttle_last[0] > 0.5:
+        _status_throttle_last[0] = now
+        push_status()
+
+
+def _humanize(seconds):
+    s = int(seconds)
+    if s < 5:   return "just now"
+    if s < 60:  return f"{s}s ago"
+    if s < 3600: return f"{s//60}m ago"
+    if s < 86400: return f"{s//3600}h ago"
+    return f"{s//86400}d ago"
+
+
+# ── Entry point ────────────────────────────────────────────────────
+def main():
+    SAVE_DIR.mkdir(parents=True, exist_ok=True)
+    threading.Thread(target=pi_poller_loop, daemon=True, name="pi-poll").start()
+    ThreadingHTTPServer.allow_reuse_address = True
+    server = ThreadingHTTPServer(LISTEN, _Handler)
+    print(f"ticalc camera UI: http://localhost:{LISTEN[1]}/")
+    push("sys", f"web UI on http://localhost:{LISTEN[1]}/  ·  buffer size {BUFFER_SIZE}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nbye")
+
+
+if __name__ == "__main__":
+    main()
