@@ -361,9 +361,13 @@ def _read_throttled():
 
 
 def _read_wifi_rssi():
-    """/proc/net/wireless line for wlan0. Returns dBm int or None.
-    Format (3 columns of stats): `Link Quality Level Noise ...`.
-    The Level value is signed dBm (e.g. -58)."""
+    """/proc/net/wireless wlan0 line — returns RSSI in dBm (negative int) or None.
+
+    Line format after the `wlan0:` prefix is:
+        <status> <link-quality> <level-dBm> <noise-dBm> <discards…>
+    e.g. ` 0000   25.  -85.  -256        0    …` — the level field is
+    what we want (NOT the link-quality 0–70 scale, which earlier rev
+    of this function was mistakenly returning as a positive number)."""
     try:
         with open("/proc/net/wireless") as f:
             for line in f.readlines()[2:]:  # skip 2 header lines
@@ -373,9 +377,9 @@ def _read_wifi_rssi():
                 if name.strip() != "wlan0":
                     continue
                 parts = rest.split()
-                # parts: [link, level, noise, ...]
-                if len(parts) >= 2:
-                    return int(float(parts[1]))
+                # parts = [status, link, level, noise, ...] — level is index 2
+                if len(parts) >= 3:
+                    return int(float(parts[2]))
         return None
     except (OSError, ValueError):
         return None
