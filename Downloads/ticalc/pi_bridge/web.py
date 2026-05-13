@@ -490,7 +490,7 @@ button.primary { min-width: 150px; text-align: center; }
 button:disabled { opacity: 0.65; cursor: not-allowed; }
 
 /* Layout grid */
-.row { display: grid; grid-template-columns: 1fr 320px; gap: 12px; min-height: 0; }
+.row { display: grid; grid-template-columns: 1fr 360px; gap: 12px; min-height: 0; }
 @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
 
 /* Provisional new-token styling for existing component classes (refined in later tasks) */
@@ -608,33 +608,42 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 #shots {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 6px;
+  gap: 8px;
   overflow-y: auto;
   flex: 1 1 0;
   min-height: 0;
 }
 .shot-row {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+  min-width: 0;
+}
+.shot-row:hover { border-color: var(--cyan); background: rgba(76, 201, 240, 0.06); }
+.shot-head {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: stretch;
-  gap: 0;
-  border: 1px solid var(--border);
-  background: var(--bg-raised);
-  transition: border-color 150ms ease-out, transform 150ms ease-out, background 150ms ease-out;
+  min-width: 0;
 }
-.shot-row:hover { border-color: var(--cyan); transform: translateX(4px); background: rgba(76, 201, 240, 0.06); }
 .shot-link {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   color: var(--text);
   text-decoration: none;
   font-size: 12px;
+  min-width: 0;
 }
 .shot-link::before { content: "▣"; color: var(--cyan); font-size: 12px; }
-.shot-row .name { color: var(--cyan); font-weight: 500; letter-spacing: 0.04em; }
+.shot-row .name {
+  color: var(--cyan); font-weight: 500; letter-spacing: 0.04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
 .shot-row .meta {
   color: var(--muted);
   font-size: 10px;
@@ -657,6 +666,48 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 }
 .row-btn:hover { color: var(--cyan); background: rgba(76, 201, 240, 0.08); }
 .row-btn-del:hover { color: var(--red); background: rgba(255, 93, 108, 0.10); }
+
+.shot-strip {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg-deep);
+  border-top: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.shot-strip::-webkit-scrollbar { height: 4px; }
+.shot-strip::-webkit-scrollbar-thumb { background: var(--border); }
+.shot-strip .strip-frame {
+  flex: 0 0 auto;
+  height: 38px;
+  display: block;
+  border: 1px solid transparent;
+  background: #000;
+  transition: border-color 150ms ease-out, transform 150ms ease-out;
+  position: relative;
+}
+.shot-strip .strip-frame img {
+  display: block;
+  height: 100%;
+  width: auto;
+  object-fit: cover;
+  pointer-events: none;
+}
+.shot-strip .strip-frame:hover { border-color: var(--cyan); transform: scale(1.10); z-index: 2; }
+.shot-strip .strip-frame::after {
+  /* tiny frame-index badge in the corner */
+  content: attr(data-i);
+  position: absolute;
+  bottom: 0; right: 0;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+  background: rgba(4, 6, 10, 0.7);
+  padding: 0 3px;
+  pointer-events: none;
+}
 .empty { color: var(--muted); font-style: normal; padding: 4px 0; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
 
 /* Scrollbar polish */
@@ -913,6 +964,47 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   color: var(--dim);
   cursor: help;
   z-index: 1;
+}
+
+/* Offline overlay — covers the grid when /api/system isn't reachable */
+.tele-overlay {
+  position: absolute;
+  inset: 22px 14px 10px;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 14, 26, 0.92) 0%,
+    rgba(10, 14, 26, 0.92) 100%
+  );
+  z-index: 2;
+  text-align: center;
+}
+.panel.telemetry.offline .tele-overlay { display: flex; }
+.panel.telemetry.offline .tele-grid { filter: blur(1px) opacity(0.25); pointer-events: none; }
+.tele-overlay-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: var(--red);
+  text-shadow: 0 0 10px rgba(255, 93, 108, 0.35);
+}
+.panel.telemetry.offline.degraded .tele-overlay-title { color: var(--amber); text-shadow: 0 0 10px rgba(255, 183, 0, 0.35); }
+.tele-overlay-sub {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tele-overlay-sub code {
+  color: var(--cyan);
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 /* HUD overlay on the live video */
@@ -1178,7 +1270,11 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 </div>
 
 <section class="panel telemetry">
-  <span class="panel-tab">// SYS-02 · BRIDGE TELEMETRY</span>
+  <span class="panel-tab" id="tele-tab">// SYS-02 · BRIDGE TELEMETRY</span>
+  <div class="tele-overlay" id="tele-overlay">
+    <span class="tele-overlay-title" id="tele-overlay-title">BRIDGE OFFLINE</span>
+    <span class="tele-overlay-sub" id="tele-overlay-sub">awaiting <code>/api/system</code> from <span id="tele-overlay-host">--</span></span>
+  </div>
   <div class="tele-grid">
     <div class="tele">
       <span class="tele-k">Temp</span>
@@ -1434,7 +1530,21 @@ function humanizeSeconds(s) {
 function renderTelemetry(s) {
   const sys = s.pi_system;
   const meta = $('t-meta');
+  const panel = document.querySelector('.panel.telemetry');
+  const overlayTitle = $('tele-overlay-title');
+  const overlayHost  = $('tele-overlay-host');
+
   if (!sys) {
+    panel.classList.add('offline');
+    // Two cases to surface:
+    //   pi.ping !== 'up' → Pi unreachable (network / power)
+    //   pi.ping === 'up' but no pi_system → bridge.py needs the /api/system update
+    const piUp = s.pi && s.pi.ping === 'up';
+    panel.classList.toggle('degraded', piUp);
+    if (overlayTitle) overlayTitle.textContent = piUp ? 'TELEMETRY UNAVAILABLE' : 'BRIDGE OFFLINE';
+    if (overlayHost)  overlayHost.textContent  = s.pi && s.pi.checked
+      ? `(last probe ${s.pi.checked})` : '--';
+    // Reset the underlying cells (so a recovery transition looks clean).
     ['t-temp', 't-cpu', 't-mem', 't-wifi', 't-throt', 't-disk'].forEach(id => {
       const el = $(id); if (el) { el.textContent = '--'; el.style.color = ''; }
     });
@@ -1445,11 +1555,12 @@ function renderTelemetry(s) {
     $('t-throt-sub').textContent = '';
     $('t-wifi-bars').innerHTML = '<i></i><i></i><i></i><i></i>';
     if (meta) {
-      meta.textContent = s.pi_system_at ? `stale · last ${s.pi_system_at}` : 'no signal';
+      meta.textContent = s.pi_system_at ? `stale · last ${s.pi_system_at}` : '';
       meta.title = 'awaiting first telemetry snapshot from Pi';
     }
     return;
   }
+  panel.classList.remove('offline', 'degraded');
 
   // Temp — bar maps 20–80°C to 0–100%. Color: green<55, amber<70, red≥70.
   if (sys.temp_c != null) {
@@ -1597,14 +1708,26 @@ async function refreshShots() {
     }
     shots.innerHTML = list.slice(0, 30).map(b => {
       const n = esc(b.name);
+      const enc = encodeURIComponent(b.name);
+      // Filmstrip: one anchor per frame, frame_NN.jpg naming from capture_buffer / capture_snap.
+      // Frames lazy-load so a 30-batch * 15-frame list doesn't fire 450 requests on first paint.
+      const strip = Array.from({ length: b.frames }, (_, i) => {
+        const f = `frame_${String(i + 1).padStart(2, '0')}.jpg`;
+        return `<a class="strip-frame" data-i="${String(i+1).padStart(2,'0')}"`
+             + ` href="/batchfile/${enc}/${f}" target="_blank">`
+             + `<img src="/batchfile/${enc}/${f}" loading="lazy" alt="${f}"></a>`;
+      }).join('');
       return (
         `<div class="shot-row" data-name="${n}">
-          <a class="shot-link" href="/batch/${encodeURIComponent(b.name)}" target="_blank">
-            <span class="name">${n}</span>
-            <span class="meta">${b.frames} fr · ${esc(b.ago)}</span>
-          </a>
-          <button class="row-btn" data-action="rename" data-name="${n}" title="Rename">✎</button>
-          <button class="row-btn row-btn-del" data-action="delete" data-name="${n}" title="Delete">×</button>
+          <div class="shot-head">
+            <a class="shot-link" href="/batch/${enc}" target="_blank">
+              <span class="name">${n}</span>
+              <span class="meta">${b.frames} fr · ${esc(b.ago)}</span>
+            </a>
+            <button class="row-btn" data-action="rename" data-name="${n}" title="Rename">✎</button>
+            <button class="row-btn row-btn-del" data-action="delete" data-name="${n}" title="Delete">×</button>
+          </div>
+          ${b.frames > 0 ? `<div class="shot-strip">${strip}</div>` : ''}
         </div>`
       );
     }).join('');
