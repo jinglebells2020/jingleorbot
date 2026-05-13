@@ -59,6 +59,11 @@ class State:
         self.frame_buffer = collections.deque(maxlen=BUFFER_SIZE)
         self.frames_seen = 0
         # ESP32 button-signal monitor — populated by /api/button POSTs.
+        # button_history keeps the last 200 events (press/release/hello),
+        # which the dashboard uses to draw a logic-analyzer trace over the
+        # last 60s and a scrollable recent-events list. Poll heartbeats
+        # are not recorded — they'd swamp the buffer without adding info.
+        self.button_history = collections.deque(maxlen=200)
         self.button = {
             "state": "unknown",          # "pressed" | "released" | "unknown"
             "last_event": None,          # "press" | "release" | "hello" | "poll"
@@ -100,14 +105,20 @@ def build_status():
     with state.buffer_lock:
         buf_count = len(state.frame_buffer)
         frames_seen = state.frames_seen
+    now = time.time()
     with state.lock:
         sys_snap = state.pi_system
         sys_at = state.pi_system_at.strftime("%H:%M:%S") if state.pi_system_at else None
         btn = dict(state.button)
+        # Only ship history newer than 5 min — older events aren't useful
+        # for the 60s trace chart or the recent-events list, and keep
+        # the SSE payload bounded.
+        cutoff = now - 300
+        history = [dict(e) for e in state.button_history if e["t"] >= cutoff]
     # Compute "Xs ago" sub for the SIGNAL panel; the wall-clock age is more
     # useful than the absolute time when the dashboard reconnects.
     if btn.get("last_at_ts") is not None:
-        btn["age_s"] = max(0, int(time.time() - btn["last_at_ts"]))
+        btn["age_s"] = max(0, int(now - btn["last_at_ts"]))
     else:
         btn["age_s"] = None
     return {
@@ -117,10 +128,12 @@ def build_status():
         "last_batch": last,
         "last_batch_at": last_at,
         "save_dir": str(SAVE_DIR),
-        "uptime": int(time.time() - state.start_time),
+        "uptime": int(now - state.start_time),
         "pi_system": sys_snap,
         "pi_system_at": sys_at,
         "button": btn,
+        "button_history": history,
+        "server_now": now,
     }
 
 
@@ -191,6 +204,14 @@ def record_button_event(payload, client_ip):
             msg = None
         else:
             msg = f"event={evt!r} (ignored)"
+        # Record press/release/hello in the rolling history for the trace
+        # chart. Polls are skipped (signal: noise too low).
+        if evt in ("press", "release", "hello"):
+            state.button_history.append({
+                "t": now,
+                "evt": evt,
+                "duration_ms": b.get("last_duration_ms") if evt == "release" else None,
+            })
     if msg is not None:
         push("btn", msg)
     push_status()
@@ -490,7 +511,11 @@ h2 { font-size: 10px; margin: 0; font-weight: 500; letter-spacing: 0.18em; text-
 /* Panel chrome — chamfered HUD frame */
 .panel {
   position: relative;
-  padding: 26px 14px 14px;
+  /* 32px top padding leaves clear space below the absolutely-positioned
+   * panel-tab (top: 4, ~14px tall → ~18px) and content below it.
+   * Earlier 26px crowded the tab against the first content row, most
+   * visible on the TX LOG where rows are 12px tall and dense. */
+  padding: 32px 14px 14px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1013,14 +1038,19 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 
 /* SIG-03 — ESP32 button signal panel */
 .signal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 18px 16px;
+}
+.sig-top {
   display: grid;
   grid-template-columns: minmax(180px, max-content) 1fr;
   align-items: center;
   gap: 18px;
-  padding: 14px 18px 16px;
 }
 @media (max-width: 700px) {
-  .signal { grid-template-columns: 1fr; }
+  .sig-top { grid-template-columns: 1fr; }
 }
 .sig-state {
   display: inline-flex;
@@ -1076,6 +1106,84 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   letter-spacing: 0.04em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* SIG-03 history: trace chart + recent events */
+.sig-history {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sig-trace-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.sig-trace-title { color: var(--cyan); font-weight: 500; }
+.sig-trace-stats { color: var(--muted); font-variant-numeric: tabular-nums; }
+.sig-trace {
+  width: 100%;
+  height: 36px;
+  display: block;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+}
+.sig-trace-axis { stroke: var(--dim); stroke-width: 1; }
+.sig-trace-now { stroke: var(--cyan); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.55; }
+.sig-trace .tick { stroke: var(--border); stroke-width: 1; opacity: 0.5; }
+.sig-trace .press {
+  fill: var(--red);
+  opacity: 0.85;
+}
+.sig-trace .press.ongoing {
+  fill: url(#sig-ongoing-gradient);
+  /* SVG gradient not strictly needed — fall back to solid red. Browsers
+   * without the gradient just render solid. */
+}
+.sig-trace-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.sig-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  max-height: 110px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+}
+.sig-events:empty { display: none; }
+.sig-events li {
+  display: grid;
+  grid-template-columns: 78px 70px 1fr;
+  gap: 10px;
+  padding: 3px 9px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.sig-events li:last-child { border-bottom: none; }
+.sig-events .et { color: var(--muted); }
+.sig-events .ev {
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.sig-events .ev.press   { color: var(--red); }
+.sig-events .ev.release { color: var(--green); }
+.sig-events .ev.hello   { color: var(--cyan); }
+.sig-events .ev.poll    { color: var(--muted); }
+.sig-events .ed { color: var(--muted); text-align: right; }
 
 /* Buffer mini-segments in the BUFFER vital tile */
 .vital-segs {
@@ -1523,17 +1631,35 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 <section class="panel">
   <span class="panel-tab">// SIG-03 · BUTTON SIGNAL · GPIO42</span>
   <div class="signal unknown" id="signal">
-    <div class="sig-state" id="sig-state-wrap">
-      <span class="sig-dot"></span>
-      <span id="sig-state">--</span>
+    <div class="sig-top">
+      <div class="sig-state" id="sig-state-wrap">
+        <span class="sig-dot"></span>
+        <span id="sig-state">--</span>
+      </div>
+      <div class="sig-meta">
+        <div class="sig-meta-cell"><span class="sig-meta-k">Last event</span><span class="sig-meta-v" id="sig-last">—</span></div>
+        <div class="sig-meta-cell"><span class="sig-meta-k">Presses</span><span class="sig-meta-v" id="sig-count">0</span></div>
+        <div class="sig-meta-cell"><span class="sig-meta-k">Last hold</span><span class="sig-meta-v" id="sig-dur">—</span></div>
+        <div class="sig-meta-cell"><span class="sig-meta-k">ESP IP</span><span class="sig-meta-v" id="sig-ip">—</span></div>
+        <div class="sig-meta-cell"><span class="sig-meta-k">Uptime</span><span class="sig-meta-v" id="sig-uptime">—</span></div>
+        <div class="sig-meta-cell"><span class="sig-meta-k">RSSI</span><span class="sig-meta-v" id="sig-rssi">—</span></div>
+      </div>
     </div>
-    <div class="sig-meta">
-      <div class="sig-meta-cell"><span class="sig-meta-k">Last event</span><span class="sig-meta-v" id="sig-last">—</span></div>
-      <div class="sig-meta-cell"><span class="sig-meta-k">Presses</span><span class="sig-meta-v" id="sig-count">0</span></div>
-      <div class="sig-meta-cell"><span class="sig-meta-k">Last hold</span><span class="sig-meta-v" id="sig-dur">—</span></div>
-      <div class="sig-meta-cell"><span class="sig-meta-k">ESP IP</span><span class="sig-meta-v" id="sig-ip">—</span></div>
-      <div class="sig-meta-cell"><span class="sig-meta-k">Uptime</span><span class="sig-meta-v" id="sig-uptime">—</span></div>
-      <div class="sig-meta-cell"><span class="sig-meta-k">RSSI</span><span class="sig-meta-v" id="sig-rssi">—</span></div>
+    <div class="sig-history">
+      <div class="sig-trace-head">
+        <span class="sig-trace-title">// TRACE · LAST 60s</span>
+        <span class="sig-trace-stats" id="sig-trace-stats">0 presses · 0ms total</span>
+      </div>
+      <svg class="sig-trace" viewBox="0 0 600 36" preserveAspectRatio="none" aria-hidden="true">
+        <g class="sig-trace-ticks" id="sig-trace-ticks"></g>
+        <line class="sig-trace-axis" x1="0" y1="20" x2="600" y2="20"/>
+        <g class="sig-trace-presses" id="sig-trace-presses"></g>
+        <line class="sig-trace-now" x1="600" y1="0" x2="600" y2="36"/>
+      </svg>
+      <div class="sig-trace-labels">
+        <span>−60s</span><span>−45</span><span>−30</span><span>−15</span><span>NOW</span>
+      </div>
+      <ul class="sig-events" id="sig-events"></ul>
     </div>
   </div>
 </section>
@@ -1762,7 +1888,90 @@ function renderSignal(s) {
   ipEl.textContent  = b.esp_ip || b.client_ip || '—';
   upEl.textContent  = (b.uptime_ms != null) ? humanizeSeconds(Math.floor(b.uptime_ms/1000)) : '—';
   rsEl.textContent  = (b.rssi != null) ? `${b.rssi} dBm` : '—';
+
+  // History — refresh cache then redraw trace + events list
+  if (s.button_history) {
+    _signalHistory = s.button_history;
+    // Adjust client→server clock offset so the chart's "now" lines up
+    // with server-timestamped events when they disagree by more than a
+    // second (e.g. ESP32 events arrive within 100ms of being recorded
+    // server-side; client renders within ~16ms; small drift only).
+    if (typeof s.server_now === 'number') {
+      _signalServerOffset = s.server_now - (Date.now() / 1000);
+    }
+  }
+  renderSignalTrace();
+  renderSignalEvents();
+  renderSignalState(st);
 }
+
+// Cached state shared between renderSignal() pushes and the 500ms tick
+let _signalHistory = [];
+let _signalServerOffset = 0;
+let _signalState = 'unknown';
+function renderSignalState(st) { _signalState = st; }
+
+function renderSignalTrace() {
+  const presses = $('sig-trace-presses');
+  const ticks = $('sig-trace-ticks');
+  const stats = $('sig-trace-stats');
+  if (!presses) return;
+  const WINDOW = 60;             // seconds visible
+  const W = 600;                 // svg viewBox width (matches CSS aspect)
+  const now = (Date.now() / 1000) + _signalServerOffset;
+  const tStart = now - WINDOW;
+  // 10-second grid ticks (lines + axis labels are rendered as plain divs).
+  ticks.innerHTML = [10, 20, 30, 40, 50].map(s => {
+    const x = W - (s / WINDOW) * W;
+    return `<line class="tick" x1="${x}" y1="0" x2="${x}" y2="36"/>`;
+  }).join('');
+  // Reconstruct press intervals: a 'press' opens an interval; the next
+  // 'release' closes it. An unmatched press extends to now (ongoing).
+  let intervals = [];
+  let pressStart = null;
+  for (const e of _signalHistory) {
+    if (e.evt === 'press') {
+      pressStart = e.t;
+    } else if (e.evt === 'release') {
+      if (pressStart != null) { intervals.push([pressStart, e.t]); pressStart = null; }
+    }
+  }
+  if (pressStart != null) intervals.push([pressStart, now]);
+  // Stats: count + total ms within window
+  let count = 0, totalMs = 0;
+  for (const [a, b] of intervals) {
+    if (b < tStart) continue;
+    count++;
+    totalMs += Math.max(0, (Math.min(b, now) - Math.max(a, tStart))) * 1000;
+  }
+  if (stats) stats.textContent = `${count} press${count === 1 ? '' : 'es'} · ${Math.round(totalMs)}ms total`;
+  // Render rects, clipped to [0, W]
+  presses.innerHTML = intervals.map(([a, b]) => {
+    if (b < tStart) return '';
+    const x1 = Math.max(0, ((a - tStart) / WINDOW) * W);
+    const x2 = Math.min(W, ((b - tStart) / WINDOW) * W);
+    const w  = Math.max(1.5, x2 - x1);
+    return `<rect class="press" x="${x1.toFixed(1)}" y="6" width="${w.toFixed(1)}" height="28"/>`;
+  }).join('');
+}
+
+function renderSignalEvents() {
+  const ul = $('sig-events');
+  if (!ul) return;
+  // Last 12 press/release/hello events newest-first.
+  const recent = _signalHistory.filter(e => e.evt !== 'poll').slice(-12).reverse();
+  if (!recent.length) { ul.innerHTML = ''; return; }
+  ul.innerHTML = recent.map(e => {
+    const t = new Date(e.t * 1000).toTimeString().slice(0, 8);
+    const evClass = e.evt;
+    const dur = (e.evt === 'release' && e.duration_ms != null) ? `${e.duration_ms} ms` : '';
+    return `<li><span class="et">${t}</span><span class="ev ${evClass}">${evClass}</span><span class="ed">${dur}</span></li>`;
+  }).join('');
+}
+
+// Tick the trace twice a second so an ongoing press extends visually
+// without waiting for the next SSE push.
+setInterval(renderSignalTrace, 500);
 
 function updateCaptureBtn(s) {
   // Don't fight in-flight busy/done states (handled by click handler)
