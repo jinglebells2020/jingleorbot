@@ -496,8 +496,8 @@ html, body {
 
 body {
   display: grid;
-  /* rows: header · vitals · telemetry · main (live+captures) · tx-log */
-  grid-template-rows: auto auto auto 1fr auto;
+  /* rows: header · vitals · telemetry · main (live+captures) */
+  grid-template-rows: auto auto auto 1fr;
   gap: 12px;
   padding: 14px;
   background-image: radial-gradient(rgba(76, 201, 240, 0.11) 1px, transparent 1px);
@@ -1546,10 +1546,6 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   </section>
 </div>
 
-<section class="panel" style="max-height: 200px; padding-top: 14px;">
-  <div id="log"></div>
-</section>
-
 <div id="shortcuts-help" class="shortcuts-help">
   <div class="sh-card">
     <div class="sh-title">// KEYBOARD SHORTCUTS</div>
@@ -1575,6 +1571,15 @@ const shots = $('shots');
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function appendLog(ev) {
+  // The TX LOG panel was removed; appendLog becomes a no-op so the SSE
+  // handler, capture/snap click handlers, and refreshShots() error
+  // branches can keep calling it. Events still arrive via SSE — they
+  // just aren't shown in the UI anymore. The browser devtools console
+  // gets a debug-level echo so they're not entirely invisible.
+  if (!log) {
+    try { console.debug(`[${ev.src || '?'}] ${ev.msg || ''}`); } catch (_) {}
+    return;
+  }
   const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
   const div = document.createElement('div');
   const srcKey = String(ev.src || '').toLowerCase();
