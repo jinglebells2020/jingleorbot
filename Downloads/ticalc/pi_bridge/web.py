@@ -58,6 +58,20 @@ class State:
         self.buffer_lock = threading.Lock()
         self.frame_buffer = collections.deque(maxlen=BUFFER_SIZE)
         self.frames_seen = 0
+        # ESP32 button-signal monitor — populated by /api/button POSTs.
+        self.button = {
+            "state": "unknown",          # "pressed" | "released" | "unknown"
+            "last_event": None,          # "press" | "release" | "hello" | "poll"
+            "last_at": None,             # ISO time of last event (for sub)
+            "last_at_ts": None,          # epoch seconds (for "Xs ago" math)
+            "press_count": 0,
+            "last_duration_ms": None,    # duration of most-recent completed press
+            "client_ip": None,
+            "uptime_ms": None,           # ESP uptime at last event
+            "rssi": None,                # WiFi RSSI at last event (dBm)
+            "esp_ip": None,              # IP the ESP self-reported
+        }
+        self._press_started_at = None    # epoch seconds; cleared on release
 
 state = State()
 
@@ -89,6 +103,13 @@ def build_status():
     with state.lock:
         sys_snap = state.pi_system
         sys_at = state.pi_system_at.strftime("%H:%M:%S") if state.pi_system_at else None
+        btn = dict(state.button)
+    # Compute "Xs ago" sub for the SIGNAL panel; the wall-clock age is more
+    # useful than the absolute time when the dashboard reconnects.
+    if btn.get("last_at_ts") is not None:
+        btn["age_s"] = max(0, int(time.time() - btn["last_at_ts"]))
+    else:
+        btn["age_s"] = None
     return {
         "pi": pi,
         "buffer": {"count": buf_count, "max": BUFFER_SIZE, "frames_seen": frames_seen},
@@ -99,6 +120,7 @@ def build_status():
         "uptime": int(time.time() - state.start_time),
         "pi_system": sys_snap,
         "pi_system_at": sys_at,
+        "button": btn,
     }
 
 
@@ -110,6 +132,68 @@ def push_status():
     for q in subs:
         try: q.put_nowait(snap)
         except queue.Full: pass
+
+
+def record_button_event(payload, client_ip):
+    """Update button state from an ESP32 /api/button POST. Returns the
+    log-friendly message string. Handles press/release/hello/poll events;
+    completes a press by computing duration on the matching release."""
+    evt = str(payload.get("event", "")).lower().strip()
+    uptime_ms = payload.get("uptime_ms")
+    rssi      = payload.get("rssi")
+    esp_ip    = payload.get("ip")
+    now = time.time()
+    iso_now = datetime.datetime.now().strftime("%H:%M:%S")
+    msg = None
+    with state.lock:
+        b = state.button
+        b["client_ip"] = client_ip
+        if uptime_ms is not None:
+            try: b["uptime_ms"] = int(uptime_ms)
+            except (TypeError, ValueError): pass
+        if rssi is not None:
+            try: b["rssi"] = int(rssi)
+            except (TypeError, ValueError): pass
+        if esp_ip:
+            b["esp_ip"] = str(esp_ip)
+        b["last_event"] = evt or "?"
+        b["last_at"]    = iso_now
+        b["last_at_ts"] = now
+        if evt == "press":
+            b["state"] = "pressed"
+            b["press_count"] += 1
+            state._press_started_at = now
+            msg = f"PRESS  · #{b['press_count']}  · uptime {b['uptime_ms']}ms"
+        elif evt == "release":
+            b["state"] = "released"
+            held_ms = payload.get("held_ms")
+            try:
+                if held_ms is not None:
+                    held_ms = int(held_ms)
+            except (TypeError, ValueError):
+                held_ms = None
+            if held_ms is not None and held_ms >= 0:
+                # ESP-measured (between debounced edges) — beats arrival-time math.
+                b["last_duration_ms"] = held_ms
+            elif state._press_started_at is not None:
+                b["last_duration_ms"] = int((now - state._press_started_at) * 1000)
+            state._press_started_at = None
+            dur = b["last_duration_ms"]
+            msg = f"RELEASE · {dur}ms held" if dur is not None else "RELEASE"
+        elif evt == "hello":
+            # boot/handshake — adopt initial level if reported
+            init = str(payload.get("level", "")).lower()
+            if init in ("pressed", "released"):
+                b["state"] = init
+            msg = f"HELLO  · esp@{b['esp_ip'] or client_ip}  · rssi {b['rssi']}dBm"
+        elif evt == "poll":
+            # heartbeat — keeps last_at fresh; no log spam
+            msg = None
+        else:
+            msg = f"event={evt!r} (ignored)"
+    if msg is not None:
+        push("btn", msg)
+    push_status()
 
 
 # ── Pi status poller ───────────────────────────────────────────────
@@ -391,11 +475,13 @@ html, body {
 
 body {
   display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+  /* rows: header · vitals · telemetry · signal · main (live+captures) · tx-log */
+  grid-template-rows: auto auto auto auto 1fr auto;
   gap: 12px;
   padding: 14px;
   background-image: radial-gradient(rgba(76, 201, 240, 0.11) 1px, transparent 1px);
   background-size: 32px 32px;
+  min-height: 100vh;
 }
 
 h1 { font-size: 13px; margin: 0; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text); }
@@ -490,8 +576,22 @@ button.primary { min-width: 150px; text-align: center; }
 button:disabled { opacity: 0.65; cursor: not-allowed; }
 
 /* Layout grid */
-.row { display: grid; grid-template-columns: 1fr 360px; gap: 12px; min-height: 0; }
-@media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+.row {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 12px;
+  min-height: 0;
+  /* Don't let either column stretch to match the other's intrinsic height
+   * — captures has 30 batches × ~180px which would otherwise drag the live
+   * panel into a 5000-px tall slab. Each side takes its natural height;
+   * captures scrolls internally. */
+  align-items: start;
+}
+.row > section { max-height: 80vh; }
+@media (max-width: 900px) {
+  .row { grid-template-columns: 1fr; align-items: stretch; }
+  .row > section { max-height: none; }
+}
 
 /* Provisional new-token styling for existing component classes (refined in later tasks) */
 .pills { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -538,9 +638,10 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   width: 100%;
   /* All preset resolutions are 16:9 (IMX708 modes) — lock to that so the
    * corner reticles snap to the actual image corners instead of sitting
-   * on letterbox bars. max-height caps it on tall windows. */
+   * on letterbox bars. Width comes from the .row 1fr column; height
+   * follows the ratio. No max-height — if you want it smaller on a tall
+   * monitor, narrow the window. */
   aspect-ratio: 16 / 9;
-  max-height: 75vh;
   background: #000;
   overflow: hidden;
   display: flex; align-items: center; justify-content: center;
@@ -570,7 +671,9 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 #live-wrap:fullscreen .armed-pip { font-size: 12px; }
 .live-fullscreen {
   position: absolute;
-  top: 12px; right: 12px;
+  /* bottom-right keeps it clear of the REC indicator (top-right) and the
+   * armed pip (top-left); matches typical video-player chrome. */
+  bottom: 12px; right: 12px;
   width: 30px; height: 30px;
   background: rgba(4, 6, 10, 0.6);
   border: 1px solid var(--border);
@@ -584,7 +687,7 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   transition: border-color 150ms ease-out, background 150ms ease-out;
 }
 .live-fullscreen:hover { border-color: var(--cyan); background: rgba(76, 201, 240, 0.10); }
-#live-wrap:fullscreen .live-fullscreen { top: 18px; right: 18px; width: 38px; height: 38px; font-size: 18px; }
+#live-wrap:fullscreen .live-fullscreen { bottom: 22px; right: 22px; width: 38px; height: 38px; font-size: 18px; }
 
 .buf-meter { display: inline-flex; align-items: center; gap: 8px; }
 .buf-bar { width: 80px; height: 6px; background: var(--bg-deep); border: 1px solid var(--border); overflow: hidden; }
@@ -636,6 +739,7 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 #log .s.net    { color: var(--ibm-blue); background: rgba(69, 137, 255, 0.10); }
 #log .s.sys    { color: var(--amber);    background: rgba(255, 183, 0,  0.10); }
 #log .s.stream { color: var(--green);    background: rgba(56, 214, 94,  0.10); }
+#log .s.btn    { color: var(--red);      background: rgba(255, 93, 108, 0.12); }
 #log .m { color: var(--text); }
 #log .m::before { content: "▸ "; color: var(--muted); }
 
@@ -906,6 +1010,72 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 .vital.unknown .vital-dot { background: var(--amber); animation: breathe-fast 1s ease-in-out infinite; }
 @keyframes breathe       { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 @keyframes breathe-fast  { 0%, 100% { opacity: 0.5; }  50% { opacity: 1; } }
+
+/* SIG-03 — ESP32 button signal panel */
+.signal {
+  display: grid;
+  grid-template-columns: minmax(180px, max-content) 1fr;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px 16px;
+}
+@media (max-width: 700px) {
+  .signal { grid-template-columns: 1fr; }
+}
+.sig-state {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-hi);
+  background: var(--bg-raised);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition: color 120ms ease-out, border-color 120ms ease-out, background 120ms ease-out;
+}
+.sig-state .sig-dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 2px var(--bg-raised);
+  transform: translateY(-1px);
+}
+.signal.pressed .sig-state {
+  color: var(--red);
+  border-color: rgba(255, 93, 108, 0.65);
+  background: rgba(255, 93, 108, 0.08);
+  text-shadow: 0 0 14px rgba(255, 93, 108, 0.45);
+}
+.signal.pressed .sig-dot { background: var(--red); animation: breathe-fast 0.8s ease-in-out infinite; }
+.signal.released .sig-state {
+  color: var(--green);
+  border-color: rgba(56, 214, 94, 0.45);
+  background: rgba(56, 214, 94, 0.06);
+}
+.signal.released .sig-dot { background: var(--green); animation: breathe 2.2s ease-in-out infinite; }
+.signal.unknown .sig-state {
+  color: var(--amber);
+  border-color: rgba(255, 183, 0, 0.45);
+}
+.signal.unknown .sig-dot { background: var(--amber); animation: breathe-fast 1s ease-in-out infinite; }
+.sig-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px 18px;
+}
+.sig-meta-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sig-meta-k {
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--muted);
+}
+.sig-meta-v {
+  font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* Buffer mini-segments in the BUFFER vital tile */
 .vital-segs {
@@ -1350,6 +1520,24 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   <span class="tele-meta" id="t-meta" title=""></span>
 </section>
 
+<section class="panel">
+  <span class="panel-tab">// SIG-03 · BUTTON SIGNAL · GPIO42</span>
+  <div class="signal unknown" id="signal">
+    <div class="sig-state" id="sig-state-wrap">
+      <span class="sig-dot"></span>
+      <span id="sig-state">--</span>
+    </div>
+    <div class="sig-meta">
+      <div class="sig-meta-cell"><span class="sig-meta-k">Last event</span><span class="sig-meta-v" id="sig-last">—</span></div>
+      <div class="sig-meta-cell"><span class="sig-meta-k">Presses</span><span class="sig-meta-v" id="sig-count">0</span></div>
+      <div class="sig-meta-cell"><span class="sig-meta-k">Last hold</span><span class="sig-meta-v" id="sig-dur">—</span></div>
+      <div class="sig-meta-cell"><span class="sig-meta-k">ESP IP</span><span class="sig-meta-v" id="sig-ip">—</span></div>
+      <div class="sig-meta-cell"><span class="sig-meta-k">Uptime</span><span class="sig-meta-v" id="sig-uptime">—</span></div>
+      <div class="sig-meta-cell"><span class="sig-meta-k">RSSI</span><span class="sig-meta-v" id="sig-rssi">—</span></div>
+    </div>
+  </div>
+</section>
+
 <div class="row">
   <section class="panel">
     <span class="panel-tab">// CAM-01 · LIVE</span>
@@ -1450,7 +1638,7 @@ function appendLog(ev) {
   const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
   const div = document.createElement('div');
   const srcKey = String(ev.src || '').toLowerCase();
-  const srcClass = ['cam', 'net', 'sys', 'stream'].includes(srcKey) ? srcKey : '';
+  const srcClass = ['cam', 'net', 'sys', 'stream', 'btn'].includes(srcKey) ? srcKey : '';
   div.className = 'line fresh';
   div.innerHTML =
     `<span class="t">${esc(ev.t)}</span>` +
@@ -1535,7 +1723,45 @@ function renderStatus(s) {
     tickTimer();
   }
   renderTelemetry(s);
+  renderSignal(s);
   handleBoot(s);  // also recovers / shows on link state changes
+}
+
+function renderSignal(s) {
+  const b = s && s.button;
+  const wrap   = $('signal');
+  const stEl   = $('sig-state');
+  const lastEl = $('sig-last');
+  const cntEl  = $('sig-count');
+  const durEl  = $('sig-dur');
+  const ipEl   = $('sig-ip');
+  const upEl   = $('sig-uptime');
+  const rsEl   = $('sig-rssi');
+  if (!b || !wrap) return;
+
+  const st = String(b.state || 'unknown').toLowerCase();
+  wrap.classList.remove('pressed', 'released', 'unknown');
+  wrap.classList.add(['pressed','released','unknown'].includes(st) ? st : 'unknown');
+  stEl.textContent = (st === 'pressed') ? 'PRESSED'
+                   : (st === 'released') ? 'IDLE'
+                   : '--';
+
+  // "press · 2s ago" — keeps the panel useful when the log scrolls past.
+  if (b.last_event && b.age_s != null) {
+    const age = b.age_s < 5 ? 'just now' :
+                b.age_s < 60 ? `${b.age_s}s ago` :
+                b.age_s < 3600 ? `${Math.floor(b.age_s/60)}m ago` :
+                                 `${Math.floor(b.age_s/3600)}h ago`;
+    lastEl.textContent = `${String(b.last_event).toUpperCase()} · ${age}`;
+  } else {
+    lastEl.textContent = '—';
+  }
+
+  cntEl.textContent = (b.press_count != null) ? String(b.press_count) : '0';
+  durEl.textContent = (b.last_duration_ms != null) ? `${b.last_duration_ms} ms` : '—';
+  ipEl.textContent  = b.esp_ip || b.client_ip || '—';
+  upEl.textContent  = (b.uptime_ms != null) ? humanizeSeconds(Math.floor(b.uptime_ms/1000)) : '—';
+  rsEl.textContent  = (b.rssi != null) ? `${b.rssi} dBm` : '—';
 }
 
 function updateCaptureBtn(s) {
@@ -2279,6 +2505,26 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, err or "rename failed")
                 return
             self._send(200, json.dumps({"renamed_to": new_name}), "application/json")
+            return
+        if p == "/api/button":
+            # ESP32 GPIO42 button events: press / release / hello / poll.
+            # Body is small JSON; cap reads at 2KB so a misbehaving client
+            # can't park a giant POST and stall the request thread.
+            try:
+                clen = int(self.headers.get("Content-Length", "0") or 0)
+            except ValueError:
+                clen = 0
+            clen = min(clen, 2048)
+            raw = self.rfile.read(clen) if clen > 0 else b""
+            try:
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                if not isinstance(payload, dict):
+                    payload = {"event": str(payload)}
+            except (ValueError, UnicodeDecodeError):
+                payload = {"event": (raw.decode("utf-8", "replace").strip() or "?")}
+            client_ip = self.client_address[0] if self.client_address else None
+            record_button_event(payload, client_ip)
+            self._send(200, json.dumps({"ok": True}), "application/json")
             return
         self._send(404, "not found")
 
