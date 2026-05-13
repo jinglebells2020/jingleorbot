@@ -1731,8 +1731,7 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   </section>
 </div>
 
-<section class="panel" style="max-height: 200px;">
-  <span class="panel-tab">// LOG-00 · TX</span>
+<section class="panel" style="max-height: 200px; padding-top: 14px;">
   <div id="log"></div>
 </section>
 
