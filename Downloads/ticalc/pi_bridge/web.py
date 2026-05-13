@@ -536,8 +536,11 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 #live-wrap {
   position: relative;
   width: 100%;
-  min-height: 460px;
-  height: 60vh; max-height: 75vh;
+  /* All preset resolutions are 16:9 (IMX708 modes) — lock to that so the
+   * corner reticles snap to the actual image corners instead of sitting
+   * on letterbox bars. max-height caps it on tall windows. */
+  aspect-ratio: 16 / 9;
+  max-height: 75vh;
   background: #000;
   overflow: hidden;
   display: flex; align-items: center; justify-content: center;
@@ -551,6 +554,37 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+
+/* Fullscreen */
+#live-wrap:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  aspect-ratio: auto;
+  background: #000;
+}
+#live-wrap:fullscreen .reticle { width: 36px; height: 36px; }
+#live-wrap:fullscreen .crosshair { width: 44px; height: 44px; }
+#live-wrap:fullscreen .hud-params { font-size: 12px; padding: 5px 12px; }
+#live-wrap:fullscreen .rec-dot,
+#live-wrap:fullscreen .armed-pip { font-size: 12px; }
+.live-fullscreen {
+  position: absolute;
+  top: 12px; right: 12px;
+  width: 30px; height: 30px;
+  background: rgba(4, 6, 10, 0.6);
+  border: 1px solid var(--border);
+  color: var(--cyan);
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  z-index: 4;
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+}
+.live-fullscreen:hover { border-color: var(--cyan); background: rgba(76, 201, 240, 0.10); }
+#live-wrap:fullscreen .live-fullscreen { top: 18px; right: 18px; width: 38px; height: 38px; font-size: 18px; }
 
 .buf-meter { display: inline-flex; align-items: center; gap: 8px; }
 .buf-bar { width: 80px; height: 6px; background: var(--bg-deep); border: 1px solid var(--border); overflow: hidden; }
@@ -1364,6 +1398,7 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
     <div id="live-wrap">
       <img id="live-img" alt="live view">
       <span id="live-placeholder">// AWAITING FEED — PRESS INIT FEED</span>
+      <button class="live-fullscreen" id="live-fullscreen" title="Toggle fullscreen (F)" type="button">⛶</button>
       <div class="hud-overlay" aria-hidden="true">
         <span class="reticle r-tl"></span>
         <span class="reticle r-tr"></span>
@@ -1396,8 +1431,9 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
       <dt>S</dt><dd>Snap (single frame)</dd>
       <dt>R</dt><dd>Rotate 90°</dd>
       <dt>H / V</dt><dd>Toggle H-flip / V-flip</dd>
+      <dt>F</dt><dd>Toggle fullscreen live view</dd>
       <dt>?</dt><dd>Toggle this help</dd>
-      <dt>Esc</dt><dd>Close help</dd>
+      <dt>Esc</dt><dd>Close help / exit fullscreen</dd>
     </dl>
     <div class="sh-foot">PRESS ? OR ESC TO CLOSE</div>
   </div>
@@ -1685,6 +1721,22 @@ function updateHudParams() {
 
 // REC dot visibility (toggled by setLive)
 function setRecDot(on) { $('recdot').classList.toggle('on', !!on); }
+
+// Fullscreen toggle for the live view
+const liveWrap = $('live-wrap');
+const fsBtn = $('live-fullscreen');
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  } else {
+    (liveWrap.requestFullscreen ? liveWrap.requestFullscreen() : Promise.reject())
+      .catch(err => appendLog({ t: '', src: 'sys', msg: `fullscreen denied: ${err && err.message || err}` }));
+  }
+}
+fsBtn.addEventListener('click', toggleFullscreen);
+document.addEventListener('fullscreenchange', () => {
+  fsBtn.title = document.fullscreenElement ? 'Exit fullscreen (F or Esc)' : 'Toggle fullscreen (F)';
+});
 
 // HUD overlay dim — fade reticles/crosshair after a few seconds of feed
 let _hudDimTimer = null;
@@ -2134,6 +2186,8 @@ window.addEventListener('keydown', (e) => {
     hflipCb.checked = !hflipCb.checked; hflipCb.dispatchEvent(new Event('change'));
   } else if (k === 'v') {
     vflipCb.checked = !vflipCb.checked; vflipCb.dispatchEvent(new Event('change'));
+  } else if (k === 'f') {
+    e.preventDefault(); toggleFullscreen();
   } else if (k === '?') {
     $('shortcuts-help').classList.toggle('show');
   } else if (k === 'escape') {
