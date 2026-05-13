@@ -19,6 +19,7 @@ All replies prefixed with > so calc filters out kernel/log noise.
 
 import os
 import sys
+import json
 import math
 import time
 import base64
@@ -304,6 +305,169 @@ def _camera_releaser_loop():
     """Stub kept for thread compatibility — subprocess capture has no state."""
     while True:
         time.sleep(60)
+
+
+# ── System telemetry ─────────────────────────────────────────────────
+# Used by the web UI's "BRIDGE TELEMETRY" panel. All reads are cheap
+# (/sys + /proc + one vcgencmd for throttle flags). No persistent state.
+
+# Decoded names for `vcgencmd get_throttled` bits. Bits 0–3 are current
+# state; bits 16–19 are "has happened since boot" (sticky history).
+_THROTTLE_NOW = {
+    0: "UNDERVOLT",
+    1: "FREQ-CAP",
+    2: "THROTTLED",
+    3: "TEMP-LIMIT",
+}
+_THROTTLE_PAST = {
+    16: "UNDERVOLT*",
+    17: "FREQ-CAP*",
+    18: "THROTTLED*",
+    19: "TEMP-LIMIT*",
+}
+
+
+def _read_first_line(path):
+    try:
+        with open(path) as f:
+            return f.readline().strip()
+    except (OSError, FileNotFoundError):
+        return None
+
+
+def _read_pi_model():
+    """`/sys/firmware/devicetree/base/model` is null-terminated."""
+    try:
+        with open("/sys/firmware/devicetree/base/model", "rb") as f:
+            return f.read().rstrip(b"\x00").decode("utf-8", "replace")
+    except (OSError, FileNotFoundError):
+        return None
+
+
+def _read_throttled():
+    """`vcgencmd get_throttled` → hex bitfield. Returns (raw_int, [active flags], [past flags])."""
+    try:
+        r = subprocess.run(["vcgencmd", "get_throttled"],
+                           capture_output=True, text=True, timeout=2)
+        s = (r.stdout or "").strip()
+        # "throttled=0x50000" or "throttled=0x0"
+        _, _, hexpart = s.partition("=")
+        val = int(hexpart, 16)
+    except (subprocess.SubprocessError, ValueError, FileNotFoundError):
+        return None, [], []
+    now = [name for bit, name in _THROTTLE_NOW.items() if val & (1 << bit)]
+    past = [name for bit, name in _THROTTLE_PAST.items() if val & (1 << bit)]
+    return val, now, past
+
+
+def _read_wifi_rssi():
+    """/proc/net/wireless line for wlan0. Returns dBm int or None.
+    Format (3 columns of stats): `Link Quality Level Noise ...`.
+    The Level value is signed dBm (e.g. -58)."""
+    try:
+        with open("/proc/net/wireless") as f:
+            for line in f.readlines()[2:]:  # skip 2 header lines
+                if ":" not in line:
+                    continue
+                name, _, rest = line.partition(":")
+                if name.strip() != "wlan0":
+                    continue
+                parts = rest.split()
+                # parts: [link, level, noise, ...]
+                if len(parts) >= 2:
+                    return int(float(parts[1]))
+        return None
+    except (OSError, ValueError):
+        return None
+
+
+def _read_meminfo():
+    """Returns (used_mb, total_mb, used_pct) or (None, None, None)."""
+    try:
+        with open("/proc/meminfo") as f:
+            kv = {}
+            for line in f:
+                k, _, rest = line.partition(":")
+                v = rest.strip().split()[0]
+                kv[k] = int(v)  # kB
+        total = kv.get("MemTotal", 0)
+        avail = kv.get("MemAvailable", kv.get("MemFree", 0))
+        if not total:
+            return None, None, None
+        used_kb = total - avail
+        return round(used_kb / 1024, 1), round(total / 1024, 1), round(used_kb * 100 / total, 1)
+    except (OSError, KeyError, ValueError):
+        return None, None, None
+
+
+def _collect_system():
+    """Snapshot of Pi health for the web UI. All-best-effort: any
+    individual probe failure becomes a `None` field rather than an
+    error response."""
+    # CPU temp
+    temp_c = None
+    raw = _read_first_line("/sys/class/thermal/thermal_zone0/temp")
+    if raw is not None:
+        try: temp_c = round(int(raw) / 1000.0, 1)
+        except ValueError: pass
+
+    # CPU frequency (current)
+    cpu_freq_mhz = None
+    raw = _read_first_line("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
+    if raw is not None:
+        try: cpu_freq_mhz = round(int(raw) / 1000.0)
+        except ValueError: pass
+
+    # Load avg (1, 5, 15)
+    load1 = load5 = load15 = None
+    raw = _read_first_line("/proc/loadavg")
+    if raw:
+        try:
+            parts = raw.split()
+            load1, load5, load15 = float(parts[0]), float(parts[1]), float(parts[2])
+        except (IndexError, ValueError): pass
+
+    # Memory
+    mem_used_mb, mem_total_mb, mem_used_pct = _read_meminfo()
+
+    # Throttle bitfield
+    throt_raw, throt_now, throt_past = _read_throttled()
+
+    # WiFi
+    rssi_dbm = _read_wifi_rssi()
+
+    # Disk (root)
+    disk_used_pct = None
+    try:
+        st = os.statvfs("/")
+        total = st.f_blocks * st.f_frsize
+        free  = st.f_bavail * st.f_frsize
+        if total:
+            disk_used_pct = round((1 - free / total) * 100, 1)
+    except OSError:
+        pass
+
+    # Uptime
+    uptime_s = None
+    raw = _read_first_line("/proc/uptime")
+    if raw:
+        try: uptime_s = int(float(raw.split()[0]))
+        except (IndexError, ValueError): pass
+
+    return {
+        "model": _read_pi_model(),
+        "kernel": os.uname().release,
+        "temp_c": temp_c,
+        "cpu_freq_mhz": cpu_freq_mhz,
+        "load1": load1, "load5": load5, "load15": load15,
+        "mem_used_mb": mem_used_mb, "mem_total_mb": mem_total_mb, "mem_used_pct": mem_used_pct,
+        "disk_used_pct": disk_used_pct,
+        "throttled_raw": throt_raw,
+        "throttled_now": throt_now,
+        "throttled_past": throt_past,
+        "rssi_dbm": rssi_dbm,
+        "uptime_s": uptime_s,
+    }
 
 
 # ── MJPEG live stream ─────────────────────────────────────────────
@@ -941,6 +1105,14 @@ class _CaptureHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/api/system":
+            body = json.dumps(_collect_system()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/push":

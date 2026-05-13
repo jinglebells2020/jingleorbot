@@ -47,6 +47,8 @@ class State:
         self.log = collections.deque(maxlen=600)
         self.subscribers = set()           # SSE client queues
         self.pi_status = {"ping": "?", "http": "?", "checked": None}
+        self.pi_system = None              # /api/system snapshot or None
+        self.pi_system_at = None           # datetime of last successful fetch
         self.batches_saved = 0
         self.last_batch = None
         self.last_batch_at = None
@@ -84,6 +86,9 @@ def build_status():
     with state.buffer_lock:
         buf_count = len(state.frame_buffer)
         frames_seen = state.frames_seen
+    with state.lock:
+        sys_snap = state.pi_system
+        sys_at = state.pi_system_at.strftime("%H:%M:%S") if state.pi_system_at else None
     return {
         "pi": pi,
         "buffer": {"count": buf_count, "max": BUFFER_SIZE, "frames_seen": frames_seen},
@@ -92,6 +97,8 @@ def build_status():
         "last_batch_at": last_at,
         "save_dir": str(SAVE_DIR),
         "uptime": int(time.time() - state.start_time),
+        "pi_system": sys_snap,
+        "pi_system_at": sys_at,
     }
 
 
@@ -134,6 +141,39 @@ def pi_poller_loop():
             state.pi_status = info
         push_status()
         time.sleep(8)
+
+
+def _pi_system_check_once():
+    """One-shot fetch of /api/system from the Pi. Returns the parsed JSON
+    dict on success, or None on any failure (Pi down, malformed body,
+    timeout). Cheap: ~1KB JSON over LAN."""
+    try:
+        c = http.client.HTTPConnection(PI_HOST, PI_HTTP_PORT, timeout=2)
+        c.request("GET", "/api/system")
+        r = c.getresponse()
+        if r.status != 200:
+            r.read(); c.close(); return None
+        body = r.read(); c.close()
+        return json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
+
+
+def pi_system_poller_loop():
+    """Drives the BRIDGE TELEMETRY panel. Polls /api/system every 5s.
+    Skips the request entirely while the Pi ping is known-down to avoid
+    piling up 2s timeouts when the Pi is offline."""
+    while True:
+        with state.lock:
+            ping = state.pi_status.get("ping", "?")
+        if ping == "up":
+            info = _pi_system_check_once()
+            if info is not None:
+                with state.lock:
+                    state.pi_system = info
+                    state.pi_system_at = datetime.datetime.now()
+                push_status()
+        time.sleep(5)
 
 
 # ── Frame parser helper (extracts complete JPEGs from a byte stream) ─
@@ -351,7 +391,7 @@ html, body {
 
 body {
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto auto 1fr auto;
   gap: 12px;
   padding: 14px;
   background-image: radial-gradient(rgba(76, 201, 240, 0.11) 1px, transparent 1px);
@@ -793,6 +833,88 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 .vital-segs > i.lit { background: var(--cyan); box-shadow: 0 0 4px rgba(76, 201, 240, 0.55); }
 .vital.ok .vital-segs > i.lit { background: var(--green); box-shadow: 0 0 4px rgba(56, 214, 94, 0.55); }
 
+/* BRIDGE TELEMETRY panel */
+.panel.telemetry { padding: 26px 16px 14px; }
+.tele-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 22px;
+}
+@media (max-width: 1100px) { .tele-grid { grid-template-columns: repeat(3, 1fr); gap: 18px; } }
+@media (max-width: 600px)  { .tele-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; } }
+.tele {
+  display: flex; flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.tele-k {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tele-v {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.02em;
+}
+.tele-sub {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tele-bar {
+  display: block;
+  height: 4px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  margin-top: 3px;
+}
+.tele-bar i {
+  display: block;
+  height: 100%;
+  background: var(--cyan);
+  transition: width 250ms ease-out, background 250ms ease-out;
+}
+.tele-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  margin-top: 4px;
+  height: 10px;
+}
+.tele-bars i {
+  display: block;
+  width: 4px;
+  background: var(--dim);
+}
+.tele-bars i:nth-child(1) { height: 30%; }
+.tele-bars i:nth-child(2) { height: 55%; }
+.tele-bars i:nth-child(3) { height: 78%; }
+.tele-bars i:nth-child(4) { height: 100%; }
+.tele-bars i.lit { background: var(--cyan); box-shadow: 0 0 3px rgba(76, 201, 240, 0.5); }
+.tele-meta {
+  position: absolute;
+  bottom: 6px; right: 14px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  cursor: help;
+  z-index: 1;
+}
+
 /* HUD overlay on the live video */
 .hud-overlay {
   position: absolute;
@@ -1055,6 +1177,43 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   </div>
 </div>
 
+<section class="panel telemetry">
+  <span class="panel-tab">// SYS-02 · BRIDGE TELEMETRY</span>
+  <div class="tele-grid">
+    <div class="tele">
+      <span class="tele-k">Temp</span>
+      <span class="tele-v" id="t-temp">--</span>
+      <span class="tele-bar"><i id="t-temp-fill" style="width:0%"></i></span>
+    </div>
+    <div class="tele">
+      <span class="tele-k">CPU</span>
+      <span class="tele-v" id="t-cpu">--</span>
+      <span class="tele-sub" id="t-cpu-sub">load --</span>
+    </div>
+    <div class="tele">
+      <span class="tele-k">Mem</span>
+      <span class="tele-v" id="t-mem">--</span>
+      <span class="tele-bar"><i id="t-mem-fill" style="width:0%"></i></span>
+    </div>
+    <div class="tele">
+      <span class="tele-k">WiFi</span>
+      <span class="tele-v" id="t-wifi">--</span>
+      <span class="tele-bars" id="t-wifi-bars"><i></i><i></i><i></i><i></i></span>
+    </div>
+    <div class="tele">
+      <span class="tele-k">Throttle</span>
+      <span class="tele-v" id="t-throt">--</span>
+      <span class="tele-sub" id="t-throt-sub"></span>
+    </div>
+    <div class="tele">
+      <span class="tele-k">Disk</span>
+      <span class="tele-v" id="t-disk">--</span>
+      <span class="tele-bar"><i id="t-disk-fill" style="width:0%"></i></span>
+    </div>
+  </div>
+  <span class="tele-meta" id="t-meta" title=""></span>
+</section>
+
 <div class="row">
   <section class="panel">
     <span class="panel-tab">// CAM-01 · LIVE</span>
@@ -1237,6 +1396,7 @@ function renderStatus(s) {
     _uptimeAnchor = { server_s: s.uptime, client_ms: Date.now() };
     tickTimer();
   }
+  renderTelemetry(s);
   handleBoot(s);  // also recovers / shows on link state changes
 }
 
@@ -1261,6 +1421,111 @@ function updateCaptureBtn(s) {
 function updateArmedPip(s) {
   const pip = $('armedpip');
   if (pip) pip.classList.toggle('on', s.buffer.count >= s.buffer.max);
+}
+
+function humanizeSeconds(s) {
+  if (s == null) return '?';
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s/60)}m`;
+  if (s < 86400) return `${Math.floor(s/3600)}h${Math.floor((s%3600)/60)}m`;
+  return `${Math.floor(s/86400)}d${Math.floor((s%86400)/3600)}h`;
+}
+
+function renderTelemetry(s) {
+  const sys = s.pi_system;
+  const meta = $('t-meta');
+  if (!sys) {
+    ['t-temp', 't-cpu', 't-mem', 't-wifi', 't-throt', 't-disk'].forEach(id => {
+      const el = $(id); if (el) { el.textContent = '--'; el.style.color = ''; }
+    });
+    ['t-temp-fill', 't-mem-fill', 't-disk-fill'].forEach(id => {
+      const el = $(id); if (el) el.style.width = '0%';
+    });
+    $('t-cpu-sub').textContent = 'load --';
+    $('t-throt-sub').textContent = '';
+    $('t-wifi-bars').innerHTML = '<i></i><i></i><i></i><i></i>';
+    if (meta) {
+      meta.textContent = s.pi_system_at ? `stale · last ${s.pi_system_at}` : 'no signal';
+      meta.title = 'awaiting first telemetry snapshot from Pi';
+    }
+    return;
+  }
+
+  // Temp — bar maps 20–80°C to 0–100%. Color: green<55, amber<70, red≥70.
+  if (sys.temp_c != null) {
+    const t = sys.temp_c;
+    $('t-temp').textContent = `${t.toFixed(1)}°C`;
+    const color = t < 55 ? 'var(--green)' : (t < 70 ? 'var(--amber)' : 'var(--red)');
+    $('t-temp').style.color = color;
+    const pct = Math.max(0, Math.min(100, ((t - 20) / 60) * 100));
+    const fill = $('t-temp-fill');
+    fill.style.width = pct + '%';
+    fill.style.background = color;
+  }
+
+  // CPU clock + load avg
+  if (sys.cpu_freq_mhz != null) $('t-cpu').textContent = `${sys.cpu_freq_mhz} MHz`;
+  if (sys.load1 != null) {
+    $('t-cpu-sub').textContent =
+      `load ${sys.load1.toFixed(2)} · ${sys.load5.toFixed(2)} · ${sys.load15.toFixed(2)}`;
+  }
+
+  // Memory
+  if (sys.mem_used_mb != null && sys.mem_total_mb != null) {
+    $('t-mem').textContent = `${Math.round(sys.mem_used_mb)} / ${Math.round(sys.mem_total_mb)} MB`;
+    const fill = $('t-mem-fill');
+    fill.style.width = (sys.mem_used_pct || 0) + '%';
+    fill.style.background = sys.mem_used_pct > 85 ? 'var(--amber)' : 'var(--cyan)';
+  }
+
+  // WiFi RSSI + 4 bars
+  if (sys.rssi_dbm != null) {
+    const r = sys.rssi_dbm;
+    $('t-wifi').textContent = `${r} dBm`;
+    let bars = 0;
+    if (r >= -55) bars = 4;
+    else if (r >= -65) bars = 3;
+    else if (r >= -75) bars = 2;
+    else if (r >= -85) bars = 1;
+    const color = bars >= 3 ? 'var(--green)' : (bars >= 2 ? 'var(--cyan)' : (bars >= 1 ? 'var(--amber)' : 'var(--red)'));
+    $('t-wifi').style.color = color;
+    const cells = $('t-wifi-bars').children;
+    for (let i = 0; i < cells.length; i++) cells[i].classList.toggle('lit', i < bars);
+  } else {
+    $('t-wifi').textContent = '--';
+    $('t-wifi').style.color = '';
+  }
+
+  // Throttle
+  const now = sys.throttled_now || [];
+  const past = sys.throttled_past || [];
+  if (now.length === 0) {
+    $('t-throt').textContent = 'OK';
+    $('t-throt').style.color = 'var(--green)';
+  } else {
+    $('t-throt').textContent = now.join(' · ');
+    $('t-throt').style.color = 'var(--red)';
+  }
+  $('t-throt-sub').textContent = past.length ? `past: ${past.join(' · ')}` : '';
+
+  // Disk
+  if (sys.disk_used_pct != null) {
+    const d = sys.disk_used_pct;
+    $('t-disk').textContent = `${d.toFixed(1)}%`;
+    const fill = $('t-disk-fill');
+    fill.style.width = d + '%';
+    fill.style.background = d > 90 ? 'var(--red)' : (d > 75 ? 'var(--amber)' : 'var(--cyan)');
+  }
+
+  // Footer meta: timestamp visible, model + kernel + uptime in hover tooltip
+  if (meta) {
+    meta.textContent = s.pi_system_at ? `T+${s.pi_system_at}` : '';
+    const bits = [];
+    if (sys.model)   bits.push(sys.model);
+    if (sys.kernel)  bits.push(`kernel ${sys.kernel}`);
+    if (sys.uptime_s != null) bits.push(`uptime ${humanizeSeconds(sys.uptime_s)}`);
+    meta.title = bits.join(' · ');
+  }
 }
 
 function renderBufSegs(count, max) {
@@ -2182,6 +2447,7 @@ def _humanize(seconds):
 def main():
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
     threading.Thread(target=pi_poller_loop, daemon=True, name="pi-poll").start()
+    threading.Thread(target=pi_system_poller_loop, daemon=True, name="pi-sys").start()
     ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer(LISTEN, _Handler)
     print(f"ticalc camera UI: http://localhost:{LISTEN[1]}/")
