@@ -667,47 +667,53 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 .row-btn:hover { color: var(--cyan); background: rgba(76, 201, 240, 0.08); }
 .row-btn-del:hover { color: var(--red); background: rgba(255, 93, 108, 0.10); }
 
-.shot-strip {
-  display: flex;
-  gap: 2px;
-  padding: 4px 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
+.shot-grid {
+  display: grid;
+  gap: 3px;
+  padding: 5px;
   background: var(--bg-deep);
   border-top: 1px solid var(--border);
-  scrollbar-width: thin;
 }
-.shot-strip::-webkit-scrollbar { height: 4px; }
-.shot-strip::-webkit-scrollbar-thumb { background: var(--border); }
-.shot-strip .strip-frame {
-  flex: 0 0 auto;
-  height: 38px;
+.shot-grid[data-cols="1"] { grid-template-columns: 1fr; }
+.shot-grid[data-cols="2"] { grid-template-columns: repeat(2, 1fr); }
+.shot-grid[data-cols="3"] { grid-template-columns: repeat(3, 1fr); }
+.shot-grid[data-cols="4"] { grid-template-columns: repeat(4, 1fr); }
+.shot-grid[data-cols="5"] { grid-template-columns: repeat(5, 1fr); }
+.shot-grid .grid-frame {
+  position: relative;
   display: block;
+  aspect-ratio: 4 / 3;
   border: 1px solid transparent;
   background: #000;
-  transition: border-color 150ms ease-out, transform 150ms ease-out;
-  position: relative;
+  overflow: hidden;
+  transition: border-color 150ms ease-out, transform 150ms ease-out, box-shadow 150ms ease-out;
 }
-.shot-strip .strip-frame img {
+.shot-grid .grid-frame img {
   display: block;
-  height: 100%;
-  width: auto;
+  width: 100%; height: 100%;
   object-fit: cover;
   pointer-events: none;
 }
-.shot-strip .strip-frame:hover { border-color: var(--cyan); transform: scale(1.10); z-index: 2; }
-.shot-strip .strip-frame::after {
+.shot-grid .grid-frame:hover {
+  border-color: var(--cyan);
+  transform: scale(1.06);
+  box-shadow: 0 4px 12px rgba(76, 201, 240, 0.25);
+  z-index: 2;
+}
+.shot-grid .grid-frame::after {
   /* tiny frame-index badge in the corner */
   content: attr(data-i);
   position: absolute;
-  bottom: 0; right: 0;
-  font-size: 8px;
+  bottom: 2px; right: 2px;
+  font-size: 9px;
+  font-weight: 500;
   letter-spacing: 0.06em;
   color: var(--cyan);
-  background: rgba(4, 6, 10, 0.7);
-  padding: 0 3px;
+  background: rgba(4, 6, 10, 0.78);
+  padding: 0 4px;
   pointer-events: none;
 }
+.shot-grid[data-cols="1"] .grid-frame::after { font-size: 11px; padding: 1px 6px; }
 .empty { color: var(--muted); font-style: normal; padding: 4px 0; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
 
 /* Scrollbar polish */
@@ -1709,11 +1715,15 @@ async function refreshShots() {
     shots.innerHTML = list.slice(0, 30).map(b => {
       const n = esc(b.name);
       const enc = encodeURIComponent(b.name);
-      // Filmstrip: one anchor per frame, frame_NN.jpg naming from capture_buffer / capture_snap.
-      // Frames lazy-load so a 30-batch * 15-frame list doesn't fire 450 requests on first paint.
-      const strip = Array.from({ length: b.frames }, (_, i) => {
-        const f = `frame_${String(i + 1).padStart(2, '0')}.jpg`;
-        return `<a class="strip-frame" data-i="${String(i+1).padStart(2,'0')}"`
+      // Grid columns scale with frame count: 1 frame → big hero shot,
+      // 2–4 → one row of that many, 5+ → 5-col grid (so 15 → 3 rows × 5).
+      const cols = b.frames <= 1 ? 1 : (b.frames <= 4 ? b.frames : 5);
+      // Frame_NN.jpg naming from capture_buffer / capture_snap.
+      // Frames lazy-load so a 30-batch × 15-frame list doesn't fire 450 requests on first paint.
+      const grid = Array.from({ length: b.frames }, (_, i) => {
+        const ix = String(i + 1).padStart(2, '0');
+        const f = `frame_${ix}.jpg`;
+        return `<a class="grid-frame" data-i="${ix}"`
              + ` href="/batchfile/${enc}/${f}" target="_blank">`
              + `<img src="/batchfile/${enc}/${f}" loading="lazy" alt="${f}"></a>`;
       }).join('');
@@ -1727,7 +1737,7 @@ async function refreshShots() {
             <button class="row-btn" data-action="rename" data-name="${n}" title="Rename">✎</button>
             <button class="row-btn row-btn-del" data-action="delete" data-name="${n}" title="Delete">×</button>
           </div>
-          ${b.frames > 0 ? `<div class="shot-strip">${strip}</div>` : ''}
+          ${b.frames > 0 ? `<div class="shot-grid" data-cols="${cols}">${grid}</div>` : ''}
         </div>`
       );
     }).join('');
