@@ -23,6 +23,7 @@ import math
 import time
 import base64
 import select
+import signal
 import socket
 import string
 import tempfile
@@ -33,6 +34,7 @@ from datetime import datetime
 import httpx
 import anthropic
 from anthropic import Anthropic
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 # ── Config ────────────────────────────────────────────────────────────
@@ -41,6 +43,30 @@ AGENT_ID        = "agent_011CajPFqHWZYdaW67EB5wws"
 ENVIRONMENT_ID  = "env_016tjM2kuU1M8K4DE9abitM2"
 COLS            = 26                      # calc display columns
 MAX_LINES       = 200                     # match calc-side buffer
+
+# Chain mode: ESP32 (talking to calc) POSTs /capture here; we also push the
+# JPEG to MAC_UPLOAD_URL (the TUI listener on the laptop) when set. The URL is
+# mutable at runtime — the web UI announces its current address via
+# POST /set-mac-url, so Mac DHCP lease changes don't break the push.
+HTTP_PORT       = 8080
+CAPTURE_DELAY_S = 3.0
+_mac_url_lock   = threading.Lock()
+MAC_UPLOAD_URL  = os.environ.get("MAC_UPLOAD_URL", "").strip()
+
+
+def get_mac_url():
+    with _mac_url_lock:
+        return MAC_UPLOAD_URL
+
+
+def set_mac_url(url):
+    global MAC_UPLOAD_URL
+    url = (url or "").strip()
+    with _mac_url_lock:
+        prev = MAC_UPLOAD_URL
+        MAC_UPLOAD_URL = url
+    if url != prev:
+        log(f"MAC_UPLOAD_URL updated: {url or '(cleared)'}")
 
 
 # ── Math symbol → ASCII map (mirrors main.py's _UNI_MAP) ──────────────
@@ -221,7 +247,9 @@ _CAPTURE_TIMEOUT_S = 15.0
 def capture_jpeg() -> bytes:
     """Capture a JPEG using rpicam-still in a subprocess. Returns JPEG bytes.
     Uses a unique tempfile per call so concurrent captures don't clobber
-    each other (handle_cmd dispatches requests onto worker threads)."""
+    each other (handle_cmd dispatches requests onto worker threads).
+    Preempts any active MJPEG streamer (rpicam-vid) so the camera is free."""
+    _kill_streamer()
     fd, path = tempfile.mkstemp(prefix="ticalc_capture_", suffix=".jpg", dir="/tmp")
     os.close(fd)
     try:
@@ -276,6 +304,157 @@ def _camera_releaser_loop():
     """Stub kept for thread compatibility — subprocess capture has no state."""
     while True:
         time.sleep(60)
+
+
+# ── MJPEG live stream ─────────────────────────────────────────────
+# rpicam-vid in MJPEG mode emits concatenated JPEGs on stdout. We frame
+# them with multipart/x-mixed-replace boundaries so a plain <img> tag in
+# the browser renders the live feed. Only one streamer is allowed at a
+# time; a capture preempts the stream by killing the subprocess.
+_streamer_lock = threading.Lock()
+_active_streamer = None    # subprocess.Popen | None
+
+def _terminate_streamer(proc):
+    """Gracefully shut down an rpicam-vid subprocess + its libcamera/IPA
+    helpers (which share the process group when we spawn with
+    start_new_session=True).
+
+    SIGTERM the group first so libcamera can park the lens VCM, release
+    the camera, and let the IPA child exit cleanly. SIGKILL only after a
+    short wait. The abrupt SIGKILL path is what leaves the camera
+    pipeline wedged and the SoC drawing power until reboot."""
+    if proc is None:
+        return
+    pgid = None
+    try:
+        pgid = os.getpgid(proc.pid)
+    except (ProcessLookupError, OSError):
+        pgid = None
+
+    def _sig(s):
+        try:
+            if pgid is not None:
+                os.killpg(pgid, s)
+            else:
+                proc.send_signal(s)
+        except (ProcessLookupError, OSError):
+            pass
+
+    _sig(signal.SIGTERM)
+    try:
+        proc.wait(timeout=1.2)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    # Didn't go quietly — escalate.
+    _sig(signal.SIGKILL)
+    try: proc.wait(timeout=1.0)
+    except subprocess.TimeoutExpired: pass
+
+
+def _sweep_orphans():
+    """Kill camera helpers (rpicam-*, libcamera/IPA, pisp_*) that have
+    been re-parented to init (PPID=1). These are leaks from previously
+    killed sessions; if we don't reap them, the camera pipeline stays
+    warm and the next rpicam invocation often can't reset it.
+
+    Safe with a live streamer: a freshly spawned rpicam-vid has the
+    bridge as PPID (start_new_session doesn't change PPID), so it
+    doesn't match here."""
+    try:
+        out = subprocess.run(
+            ["ps", "-eo", "pid,ppid,comm"],
+            capture_output=True, text=True, timeout=2
+        ).stdout
+    except Exception:
+        return
+    orphans = []
+    for line in out.splitlines()[1:]:
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, comm = parts
+        if ppid != "1":
+            continue
+        comm_l = comm.lower()
+        if (comm_l.startswith("rpicam")
+                or "libcamera" in comm_l
+                or comm_l.startswith("pisp_")):
+            orphans.append((pid, comm))
+    for pid, _ in orphans:
+        try:
+            os.kill(int(pid), signal.SIGKILL)
+        except (ProcessLookupError, OSError, ValueError):
+            pass
+    if orphans:
+        log("swept orphaned camera helpers: "
+            + ", ".join(f"{p}({c})" for p, c in orphans))
+
+
+def _kill_streamer():
+    global _active_streamer
+    with _streamer_lock:
+        proc = _active_streamer
+        _active_streamer = None
+    _terminate_streamer(proc)
+    _sweep_orphans()
+
+def _start_streamer(quality=60, width=1920, height=1080, fps=15,
+                    rotation=0, hflip=False, vflip=False,
+                    af_mode="continuous", lens_pos=None):
+    """Returns a Popen with stdout=PIPE running rpicam-vid in MJPEG mode.
+
+    Note on rotation: the IMX708's pipeline only supports 0° and 180°
+    (libcamera errors "transforms requiring transpose not supported" for
+    90/270). 180° is expressed as hflip+vflip. 90°/270° are handled
+    downstream (CSS for the live view, PIL for saved buffer frames).
+
+    af_mode: 'continuous' (default — VCM hunts every frame), 'auto' (single
+        AF cycle at start, then locked), or 'manual' (uses lens_pos diopters).
+    lens_pos: diopter (1/m). 0.0=infinity, larger=closer. Examples:
+        0.0=∞, 2.0=50cm, 4.0=25cm, 5.0=20cm, 6.67=15cm, 8.33=12cm.
+    """
+    global _active_streamer
+    _kill_streamer()
+    quality = max(10, min(int(quality), 95))
+    rot = int(rotation) % 360
+    cmd = [
+        "rpicam-vid",
+        "--codec", "mjpeg",
+        "--width", str(width), "--height", str(height),
+        "--framerate", str(fps),
+        "--quality", str(quality),
+        "-t", "0",                # run until killed
+        "-n",                     # no preview window
+        "-o", "-",                # stdout
+    ]
+    if af_mode == "manual" and lens_pos is not None:
+        # Lock the lens at this diopter — no AF motor activity, no AF analysis.
+        # This is the cool-running mode for a fixed-distance setup.
+        cmd += ["--autofocus-mode", "manual",
+                "--lens-position", f"{float(lens_pos):.3f}"]
+    elif af_mode == "auto":
+        cmd += ["--autofocus-mode", "auto",
+                "--autofocus-range", "full"]
+    else:  # continuous (default)
+        cmd += ["--autofocus-mode", "continuous",
+                "--autofocus-range", "full"]
+    # Only 180° collapses cleanly into camera flips. 90/270 go to the client.
+    apply_hflip = bool(hflip) ^ (rot == 180)
+    apply_vflip = bool(vflip) ^ (rot == 180)
+    if apply_hflip:
+        cmd.append("--hflip")
+    if apply_vflip:
+        cmd.append("--vflip")
+    # start_new_session=True puts rpicam-vid in its own session / process
+    # group. The libcamera-spawned IPA helper inherits that group, so a
+    # later os.killpg() takes the whole pipeline down together — the key
+    # to avoiding orphaned helpers that keep the camera warm.
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
+    with _streamer_lock:
+        _active_streamer = proc
+    return proc
 
 
 # ── Status LED (onboard ACT, falls back to silent if no perms) ───────
@@ -363,13 +542,15 @@ _keepalive_opts = [
     (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10),
     (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3),
 ]
+# 10-min budgets so long extended-thinking agent runs don't blow up the chain.
+# Connect stays tight (15s) — a stuck connect should still fail fast.
 _http = httpx.Client(
     transport=httpx.HTTPTransport(retries=0, socket_options=_keepalive_opts),
-    timeout=httpx.Timeout(60.0, connect=15.0),
+    timeout=httpx.Timeout(600.0, connect=15.0),
 )
 _anthropic = Anthropic(
     api_key=os.environ["ANTHROPIC_API_KEY"],
-    timeout=60.0,
+    timeout=600.0,
     http_client=_http,
 )
 
@@ -389,8 +570,32 @@ class State:
         self.last_frame = None
         self.last_status = "Ready"
         self.frame_count = 0
+        # Manual-push queue: web UI sets this; next ASKPHOTO/ASK from the calc
+        # returns this text *instead* of calling the Claude agent. One-shot —
+        # cleared on delivery. Lets a human on the laptop drop a note onto the
+        # calc's screen without ever touching the agent.
+        self.pending_msg = None
+        self.pending_msg_lock = threading.Lock()
 
 state = State()
+
+
+def take_pending_msg():
+    """Pop the queued message if any, returning the text (or None)."""
+    with state.pending_msg_lock:
+        msg = state.pending_msg
+        state.pending_msg = None
+    return msg
+
+
+def set_pending_msg(msg):
+    msg = (msg or "").strip()
+    with state.pending_msg_lock:
+        state.pending_msg = msg or None
+    if msg:
+        log(f"queued message for calc: {msg[:180]}")
+    else:
+        log("cleared pending message")
 
 
 def ensure_session() -> str:
@@ -533,6 +738,19 @@ def do_eval(expr: str):
 def do_ask(question: str, with_photo: bool):
     state.last_status = "Asking"
     reply("OK")
+    log(f"Q: {question[:180]}{'…' if len(question) > 180 else ''}  (photo={with_photo})")
+
+    # Short-circuit: if the web UI queued a manual message, deliver it instead.
+    pending = take_pending_msg()
+    if pending is not None:
+        log("delivering queued message to calc (skipping agent)")
+        state.lines = wrap_lines(pending)
+        for ln in pending.splitlines()[:30]:
+            log(f"A: {ln[:200]}")
+        state.last_status = "Pushed"
+        reply("DONE")
+        return
+
     cb = status_cb_factory()
     image_bytes = None
     set_led("busy")
@@ -546,6 +764,10 @@ def do_ask(question: str, with_photo: bool):
         cb("UPLOAD")
         answer = send_to_agent(image_bytes, question, status_cb=cb)
         state.lines = wrap_lines(answer)
+        for ln in answer.splitlines()[:30]:
+            log(f"A: {ln[:200]}")
+        if len(answer.splitlines()) > 30:
+            log(f"A: …({len(answer.splitlines()) - 30} more lines)")
         state.last_status = "Solved"
         reply("DONE")
         set_led("idle")
@@ -653,10 +875,281 @@ def read_loop():
                 buf = b""  # runaway, reset
 
 
+def http_capture_flow(question: str) -> str:
+    """Triggered by HTTP POST /capture from the ESP32 in the chain setup.
+    Sleeps CAPTURE_DELAY_S so the user can settle the calc/page, captures a
+    JPEG, fires it off to the Mac TUI in the background, then blocks on the
+    Claude agent and returns the text answer (which the ESP relays to the
+    calc).
+
+    Short-circuit: if a manual message has been queued via /push, that text
+    is delivered to the calc instead of running the camera + agent."""
+    pending = take_pending_msg()
+    if pending is not None:
+        log(f"delivering queued message to calc (skipping agent)")
+        state.lines = wrap_lines(pending)
+        state.last_status = "Pushed"
+        return pending
+
+    set_led("busy")
+    try:
+        time.sleep(CAPTURE_DELAY_S)
+        image_bytes = capture_jpeg()
+        state.last_frame = image_bytes
+        state.frame_count += 1
+        if get_mac_url():
+            threading.Thread(target=_push_to_mac, args=(image_bytes,),
+                             daemon=True, name="mac-push").start()
+        else:
+            log("warn: no MAC_UPLOAD_URL — image not pushed to Mac (POST /set-mac-url to set it)")
+        answer = send_to_agent(image_bytes, question or "Solve this.")
+        state.lines = wrap_lines(answer)
+        state.last_status = "Solved"
+        set_led("idle")
+        return answer
+    except Exception:
+        set_led("error")
+        raise
+
+
+def _push_to_mac(jpeg_bytes: bytes):
+    """Fire-and-forget upload of the latest capture to the Mac TUI's
+    /upload listener. Failure here must never block the calc-facing flow."""
+    url = get_mac_url()
+    if not url:
+        log("push to mac skipped: no MAC_UPLOAD_URL set")
+        return
+    try:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"shot_{ts}.jpg"
+        r = _http.post(url, content=jpeg_bytes,
+                       headers={"Content-Type": "image/jpeg",
+                                "X-Filename": filename},
+                       timeout=15.0)
+        log(f"pushed to mac: {r.status_code} ({len(jpeg_bytes)//1024}KB) -> {url}")
+    except Exception as e:
+        log(f"push to mac failed ({url}): {e}")
+
+
+class _CaptureHandler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        log(f"http {self.client_address[0]} {fmt % args}")
+
+    def do_GET(self):
+        if self.path == "/health":
+            body = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/push":
+            # GET /push returns the currently queued message (for debugging /
+            # the web UI to verify a queue exists).
+            with state.pending_msg_lock:
+                pending = state.pending_msg or ""
+            body = pending.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/mac-url":
+            # GET /mac-url returns where we'd push images.
+            body = get_mac_url().encode("utf-8") or b""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/stream.mjpeg"):
+            self._serve_mjpeg()
+        else:
+            self.send_error(404)
+
+    def _serve_mjpeg(self):
+        """Start rpicam-vid and re-frame its MJPEG stdout as multipart/x-mixed-replace.
+        Accepts ?q=NN for quality (10–95). Holds a private reference to its own
+        rpicam-vid Popen so a newer concurrent client (which preempts us by calling
+        _kill_streamer in _start_streamer) doesn't accidentally get killed by us
+        on our way out."""
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        quality = int(q.get("q", ["60"])[0]) if q.get("q") else 60
+        # Resolution preset OR explicit w/h/fps. Presets balance the Pi Zero 2 W's
+        # limited CPU vs pixel count — higher res means lower fps.
+        preset = (q.get("res", [""])[0] or "").lower()
+        presets = {
+            "hd":     (1280, 720,  20),
+            "fhd":    (1920, 1080, 15),
+            "qhd":    (2304, 1296, 12),   # IMX708 native sensor mode
+            "uhd":    (3840, 2160,  8),   # 4K — best effort
+            "max":    (4608, 2592,  6),   # sensor max
+        }
+        if preset in presets:
+            width, height, fps = presets[preset]
+        else:
+            width  = int(q.get("w",   ["1920"])[0])
+            height = int(q.get("h",   ["1080"])[0])
+            fps    = int(q.get("fps", ["15"])[0])
+        rotation = int(q.get("rot",   ["0"])[0]) if q.get("rot")   else 0
+        hflip    = q.get("hflip", ["0"])[0] in ("1", "true", "yes")
+        vflip    = q.get("vflip", ["0"])[0] in ("1", "true", "yes")
+        af_mode  = (q.get("af", ["continuous"])[0] or "continuous").lower()
+        if af_mode not in ("continuous", "auto", "manual"):
+            af_mode = "continuous"
+        lens_pos = None
+        if q.get("lens"):
+            try: lens_pos = float(q.get("lens", ["0"])[0])
+            except ValueError: lens_pos = None
+        proc = _start_streamer(quality=quality, width=width, height=height, fps=fps,
+                               rotation=rotation, hflip=hflip, vflip=vflip,
+                               af_mode=af_mode, lens_pos=lens_pos)
+        my_proc = proc
+        af_desc = af_mode if af_mode != "manual" else f"manual@{lens_pos:.2f}D"
+        log(f"mjpeg stream client connected: {self.client_address[0]} "
+            f"{width}x{height}@{fps} q={quality} rot={rotation} "
+            f"hflip={int(hflip)} vflip={int(vflip)} af={af_desc}")
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            # Don't force Connection: close — leave the default and let the framing
+            # carry the stream lifetime. Some browsers cut the connection early
+            # when they see explicit "close" on multipart/x-mixed-replace.
+            self.end_headers()
+        except Exception:
+            _kill_streamer()
+            return
+
+        SOI = b'\xff\xd8'
+        EOI = b'\xff\xd9'
+        buf = b""
+        frames = 0
+        try:
+            while True:
+                chunk = proc.stdout.read(8192)
+                if not chunk:
+                    break
+                buf += chunk
+                while True:
+                    soi = buf.find(SOI)
+                    if soi < 0:
+                        # Drop garbage before any SOI
+                        if len(buf) > 65536:
+                            buf = b""
+                        break
+                    eoi = buf.find(EOI, soi + 2)
+                    if eoi < 0:
+                        # Incomplete frame; wait for more
+                        if soi > 0:
+                            buf = buf[soi:]
+                        break
+                    frame = buf[soi:eoi + 2]
+                    buf = buf[eoi + 2:]
+                    try:
+                        self.wfile.write(b"--frame\r\n")
+                        self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                        self.wfile.write(f"Content-Length: {len(frame)}\r\n\r\n".encode())
+                        self.wfile.write(frame)
+                        self.wfile.write(b"\r\n")
+                        self.wfile.flush()
+                        frames += 1
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        return
+        finally:
+            # Only clear the global if we're still the active one (don't stomp
+            # on a newer client's streamer). Always terminate our own proc.
+            global _active_streamer
+            with _streamer_lock:
+                if _active_streamer is my_proc:
+                    _active_streamer = None
+            _terminate_streamer(my_proc)
+            _sweep_orphans()
+            log(f"mjpeg stream client gone: {self.client_address[0]} "
+                f"({frames} frames) — camera released")
+
+    def do_POST(self):
+        if self.path == "/push":
+            n = int(self.headers.get("Content-Length", "0") or "0")
+            msg = self.rfile.read(n).decode("utf-8", errors="replace")
+            set_pending_msg(msg)
+            body = b"queued" if msg.strip() else b"cleared"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == "/set-mac-url":
+            # Web UI announces its current address (handles Mac DHCP changes).
+            # Body can be a full URL (http://.../upload) or just an IP[:port].
+            n = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(n).decode("utf-8", errors="replace").strip()
+            url = raw
+            if url and "://" not in url:
+                # bare IP or IP:port — assume http and /upload path
+                if ":" not in url:
+                    url = f"http://{url}:9090/upload"
+                else:
+                    url = f"http://{url}/upload"
+            set_mac_url(url)
+            body = (url or "(cleared)").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path != "/capture":
+            self.send_error(404)
+            return
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        question = self.rfile.read(length).decode("utf-8", errors="replace").strip() if length else ""
+        log(f"Q: {question[:180]}{'…' if len(question) > 180 else ''}")
+        try:
+            answer = http_capture_flow(question)
+            # Log the answer line-by-line so it lines up nicely in the journal
+            # stream the web UI tails. Truncate very long answers.
+            for ln in answer.splitlines()[:30]:
+                log(f"A: {ln[:200]}")
+            if len(answer.splitlines()) > 30:
+                log(f"A: …({len(answer.splitlines()) - 30} more lines)")
+            body = answer.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            log(f"http /capture error: {e}")
+            err = f"FAIL:{str(e)[:200]}".encode("utf-8")
+            try:
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(err)))
+                self.end_headers()
+                self.wfile.write(err)
+            except Exception:
+                pass
+
+
+def _http_server_loop():
+    try:
+        server = HTTPServer(("0.0.0.0", HTTP_PORT), _CaptureHandler)
+        log(f"HTTP capture server on 0.0.0.0:{HTTP_PORT} "
+            f"(initial mac upload url: {get_mac_url() or 'unset'})")
+        server.serve_forever()
+    except Exception as e:
+        log(f"HTTP server died: {e}")
+
+
 def main():
     log("TiCalc Pi Bridge starting")
     threading.Thread(target=_led_loop, daemon=True, name="led").start()
     threading.Thread(target=_camera_releaser_loop, daemon=True, name="camrel").start()
+    threading.Thread(target=_http_server_loop, daemon=True, name="http").start()
     if os.environ.get("WATCHDOG_USEC"):
         threading.Thread(target=_watchdog_loop, daemon=True, name="wd").start()
     open_tty()
