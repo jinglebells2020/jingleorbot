@@ -1243,6 +1243,31 @@ class _CaptureHandler(BaseHTTPRequestHandler):
                 f"({frames} frames) — camera released")
 
     def do_POST(self):
+        if self.path == "/api/reboot":
+            # Schedule the reboot a couple of seconds out so we can answer
+            # the request first. Detached shell with stdin/out/err closed
+            # so it survives the request thread tearing down. Requires:
+            #   sudo visudo  →  enes ALL=(ALL) NOPASSWD: /sbin/reboot
+            log(f"reboot requested via /api/reboot from {self.client_address[0]}")
+            try:
+                subprocess.Popen(
+                    ["sh", "-c", "sleep 2 && sudo /sbin/reboot"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                body = b'{"reboot": "scheduled"}'
+                self.send_response(200)
+            except Exception as e:
+                log(f"reboot Popen failed: {e}")
+                body = f'{{"error": "{e}"}}'.encode("utf-8")
+                self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == "/push":
             n = int(self.headers.get("Content-Length", "0") or "0")
             msg = self.rfile.read(n).decode("utf-8", errors="replace")

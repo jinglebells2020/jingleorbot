@@ -477,10 +477,42 @@ INDEX_HTML = r"""<!doctype html>
   --text:       #c8d4e8;
   --muted:      #5b6985;
   --dim:        #3a4459;
+  --grid-dot:   rgba(76, 201, 240, 0.11);
+  --panel-shadow: 0 4px 32px rgba(76, 201, 240, 0.04);
   --font-mono:  "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --panel-clip: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
   --panel-clip-inner: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
 }
+
+:root.light {
+  /* Light-mode HUD. Same chamfered chrome / Plex Mono / dot grid, just
+   * tokens inverted. Accents are deepened so cyan/green/amber/red stay
+   * legible on a near-white background. Phosphor glows are toned down
+   * (and zeroed on the LED-style elements that would otherwise smudge). */
+  --bg-deep:    #eef1f6;
+  --bg-panel:   #e1e6ef;
+  --bg-raised:  #f8fafd;
+  --border:     #b8c2d3;
+  --border-hi:  #8a99b0;
+  --ibm-blue:   #1f56c2;
+  --cyan:       #0a7099;
+  --amber:      #8a5e00;
+  --green:      #1d7a35;
+  --red:        #b32938;
+  --text:       #0a0e1a;
+  --muted:      #5b6985;
+  --dim:        #a0adc0;
+  --grid-dot:   rgba(31, 86, 194, 0.11);
+  --panel-shadow: 0 4px 16px rgba(10, 14, 26, 0.06);
+}
+:root.light .hud-timer { text-shadow: none; }
+:root.light .vital.ok .vital-v { text-shadow: none; }
+:root.light .armed-pip { text-shadow: none; }
+:root.light .vital-segs > i.lit,
+:root.light .buf-leds > i.lit,
+:root.light .rec-dot::before,
+:root.light .armed-pip::before { box-shadow: none; }
+:root.light #live-placeholder { color: #c8d4e8; }   /* placeholder on the still-black live wrap */
 
 * { box-sizing: border-box; }
 
@@ -500,9 +532,10 @@ body {
   grid-template-rows: auto auto auto 1fr;
   gap: 12px;
   padding: 14px;
-  background-image: radial-gradient(rgba(76, 201, 240, 0.11) 1px, transparent 1px);
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
   background-size: 32px 32px;
   min-height: 100vh;
+  transition: background-color 200ms ease-out, color 200ms ease-out;
 }
 
 h1 { font-size: 13px; margin: 0; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text); }
@@ -535,7 +568,7 @@ h2 { font-size: 10px; margin: 0; font-weight: 500; letter-spacing: 0.18em; text-
   background: var(--bg-panel);
   clip-path: var(--panel-clip-inner);
   z-index: -1;
-  box-shadow: 0 4px 32px rgba(76, 201, 240, 0.04);
+  box-shadow: var(--panel-shadow);
 }
 .panel:hover::before { background: var(--border-hi); }
 
@@ -940,7 +973,23 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
 .hud-status.show-green { color: var(--green); }
 .hud-status.show-amber { color: var(--amber); }
 .hud-status.show-red   { color: var(--red); }
-.hud-actions { grid-column: 8; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.hud-actions { grid-column: 8; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
+.header-icon {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--cyan);
+  width: 36px; height: 36px;
+  padding: 0;
+  font-size: 16px;
+  letter-spacing: 0;
+  text-transform: none;
+  min-width: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.header-icon:hover { border-color: var(--cyan); background: rgba(76, 201, 240, 0.10); }
+.header-icon-danger { color: var(--amber); }
+.header-icon-danger:hover { color: var(--red); border-color: var(--red); background: rgba(255, 93, 108, 0.10); }
+.header-icon.busy { color: var(--amber); border-color: var(--amber); animation: breathe-fast 0.8s ease-in-out infinite; }
 
 @media (max-width: 1280px) {
   .hud-header {
@@ -1406,6 +1455,8 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
   <span class="hud-status" id="bootcap"></span>
   <span class="hud-cap hud-cap-r"></span>
   <div class="hud-actions">
+    <button class="header-icon" id="theme-toggle" type="button" title="Toggle theme (L)" aria-label="Toggle theme">☾</button>
+    <button class="header-icon header-icon-danger" id="reboot-pi" type="button" title="Reboot Pi" aria-label="Reboot Pi">⟲</button>
     <button class="primary" id="live">▶ INIT FEED</button>
     <button class="snap" id="snap" disabled>◉ SNAP</button>
     <button class="capture" id="capture" disabled>◉ BUFFER NOT ARMED</button>
@@ -1556,6 +1607,7 @@ button:disabled { opacity: 0.65; cursor: not-allowed; }
       <dt>R</dt><dd>Rotate 90°</dd>
       <dt>H / V</dt><dd>Toggle H-flip / V-flip</dd>
       <dt>F</dt><dd>Toggle fullscreen live view</dd>
+      <dt>L</dt><dd>Toggle light / dark theme</dd>
       <dt>?</dt><dd>Toggle this help</dd>
       <dt>Esc</dt><dd>Close help / exit fullscreen</dd>
     </dl>
@@ -1854,6 +1906,59 @@ function updateHudParams() {
 
 // REC dot visibility (toggled by setLive)
 function setRecDot(on) { $('recdot').classList.toggle('on', !!on); }
+
+// Theme toggle (light / dark)
+const themeBtn = $('theme-toggle');
+function applyTheme(t) {
+  document.documentElement.classList.toggle('light', t === 'light');
+  if (themeBtn) {
+    themeBtn.textContent = (t === 'light') ? '☀' : '☾';
+    themeBtn.title = `Toggle theme (L) — currently ${t}`;
+  }
+}
+function toggleTheme() {
+  const cur = document.documentElement.classList.contains('light') ? 'light' : 'dark';
+  const next = (cur === 'light') ? 'dark' : 'light';
+  applyTheme(next);
+  try { localStorage.setItem('ticalc.theme', next); } catch (_) {}
+}
+themeBtn.addEventListener('click', toggleTheme);
+// Apply saved theme on load (default = dark)
+try {
+  const saved = localStorage.getItem('ticalc.theme');
+  if (saved === 'light') applyTheme('light');
+  else applyTheme('dark');
+} catch (_) { applyTheme('dark'); }
+
+// Reboot Pi — POST /api/pi-reboot via the Mac proxy
+const rebootBtn = $('reboot-pi');
+rebootBtn.addEventListener('click', async () => {
+  if (!confirm('Reboot the Pi?\\nLive feed will drop and the bridge takes ~30s to come back.')) return;
+  const orig = rebootBtn.innerHTML;
+  rebootBtn.disabled = true;
+  rebootBtn.classList.add('busy');
+  rebootBtn.innerHTML = '⏻';
+  try {
+    const r = await fetch('/api/pi-reboot', { method: 'POST' });
+    if (r.ok) {
+      appendLog({ t: '', src: 'sys', msg: 'Pi reboot requested' });
+      rebootBtn.innerHTML = '✓';
+    } else {
+      const txt = await r.text();
+      appendLog({ t: '', src: 'sys', msg: `reboot failed (${r.status}): ${txt}` });
+      rebootBtn.innerHTML = '⚠';
+    }
+  } catch (err) {
+    appendLog({ t: '', src: 'sys', msg: `reboot error: ${err}` });
+    rebootBtn.innerHTML = '⚠';
+  } finally {
+    setTimeout(() => {
+      rebootBtn.disabled = false;
+      rebootBtn.classList.remove('busy');
+      rebootBtn.innerHTML = orig;
+    }, 4000);
+  }
+});
 
 // Fullscreen toggle for the live view
 const liveWrap = $('live-wrap');
@@ -2321,6 +2426,8 @@ window.addEventListener('keydown', (e) => {
     vflipCb.checked = !vflipCb.checked; vflipCb.dispatchEvent(new Event('change'));
   } else if (k === 'f') {
     e.preventDefault(); toggleFullscreen();
+  } else if (k === 'l') {
+    toggleTheme();
   } else if (k === '?') {
     $('shortcuts-help').classList.toggle('show');
   } else if (k === 'escape') {
@@ -2412,6 +2519,24 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, err or "rename failed")
                 return
             self._send(200, json.dumps({"renamed_to": new_name}), "application/json")
+            return
+        if p == "/api/pi-reboot":
+            # Proxy a reboot request to the Pi bridge. The Pi's /api/reboot
+            # schedules `sudo reboot` after a short delay so it can reply
+            # first. Requires NOPASSWD: /sbin/reboot in the Pi's sudoers.
+            try:
+                c = http.client.HTTPConnection(PI_HOST, PI_HTTP_PORT, timeout=3)
+                c.request("POST", "/api/reboot", body=b"")
+                r = c.getresponse()
+                body = r.read()
+                c.close()
+                if r.status == 200:
+                    push("sys", "Pi reboot requested via web UI")
+                    self._send(200, body, "application/json")
+                else:
+                    self._send(r.status, body or b"reboot failed")
+            except Exception as e:
+                self._send(502, f"reboot proxy failed: {e}")
             return
         if p == "/api/button":
             # ESP32 GPIO42 button events: press / release / hello / poll.
