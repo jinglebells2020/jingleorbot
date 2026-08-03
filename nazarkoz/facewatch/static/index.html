@@ -55,6 +55,10 @@
 <h1>FACEWATCH · pinet-zero</h1>
 <div id="health"><span class="dot"></span><span id="healthtext">connecting…</span></div>
 
+<h2>Live</h2>
+<img id="live" src="/stream" alt="live view"
+     style="max-width:640px;width:100%;border:1px solid var(--edge);border-radius:8px;background:#000;display:block">
+
 <h2>In view now</h2>
 <div class="cards" id="now"><div class="empty">nobody</div></div>
 
@@ -137,6 +141,11 @@ async function tick() {
 }
 tick();
 setInterval(tick, 4000);
+
+// If the stream drops (service restart), reconnect it.
+const live = document.getElementById("live");
+live.onerror = () => setTimeout(() => { live.src = "/stream?" + Date.now(); }, 3000);
+
 </script>
 </body>
 </html>

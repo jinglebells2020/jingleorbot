@@ -6,8 +6,11 @@ Wire-up: config -> Store -> Engine thread (camera + models) -> web server
 """
 
 import argparse
+import os
 import signal
 import sys
+import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -51,6 +54,21 @@ def main():
     )
     engine = Engine(store, cfg, args.root / "models", snaps_dir)
     engine.start()
+
+    def watchdog():
+        # picamera2's capture can stall forever under memory/CPU pressure on
+        # the Zero 2 W; a stalled engine reports alive=true but stops framing.
+        # Exit nonzero and let systemd bring us back fresh.
+        stall = cfg["recognition"]["watchdog_stall_s"]
+        while True:
+            time.sleep(5)
+            last = engine.last_frame_at
+            if last and time.time() - last > stall:
+                print("watchdog: no frame for %.0fs — exiting for restart"
+                      % (time.time() - last), flush=True)
+                os._exit(42)
+
+    threading.Thread(target=watchdog, daemon=True, name="watchdog").start()
 
     server = make_server(cfg, store, engine, APP_DIR / "static", snaps_dir)
 

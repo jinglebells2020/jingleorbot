@@ -53,6 +53,9 @@ class Engine(threading.Thread):
         self.faces_in_view = 0
         self.error = None
         self._embeddings = []  # [(person_id, name, vec)]
+        # Latest annotated view for the MJPEG stream:
+        self._jpeg_lock = threading.Lock()
+        self._latest_jpeg = None
 
     # ------------------------------------------------------------- lifecycle
 
@@ -93,6 +96,7 @@ class Engine(threading.Thread):
         config = self.picam.create_video_configuration(
             main={"size": (cam["width"], cam["height"]), "format": "RGB888"},
             controls={"FrameRate": cam["fps"]},
+            buffer_count=3,  # default 6 costs ~13MB more CMA; RAM is scarce
             **kwargs,
         )
         self.picam.configure(config)
@@ -120,14 +124,15 @@ class Engine(threading.Thread):
                 self.reload_embeddings_flag.clear()
                 self._embeddings = self.store.load_embeddings()
 
-            faces = self._detect(frame)
-            self.faces_in_view = len(faces)
-            updates = []
-            for face_row, small in faces:
-                res = self._recognize(face_row, small)
-                if res is not None:
-                    updates.append((face_row, res))
-            self._apply_updates(frame, updates)
+            small, rows = self._detect(frame)
+            self.faces_in_view = len(rows)
+            results = []
+            for face_row in rows:
+                obs = self._recognize(face_row, small)
+                if obs is not None:
+                    results.append((face_row, obs, self.store.observe(obs)))
+            self._save_snaps(frame, results)
+            self._publish_stream(small, results)
             self.store.sweep()
 
             now = time.time()
@@ -138,20 +143,18 @@ class Engine(threading.Thread):
                 )
 
             self.last_tick_s = time.time() - t0
-            interval = rc["busy_interval_s"] if faces else rc["idle_interval_s"]
+            interval = rc["busy_interval_s"] if rows else rc["idle_interval_s"]
             remaining = interval - self.last_tick_s
             if remaining > 0:
                 self.stop_flag.wait(remaining)
 
     def _detect(self, frame):
-        """Detect on a downscaled copy; returns [(face_row, small_image), ...]."""
+        """Detect on a downscaled copy; returns (small_image, face_rows)."""
         dw, dh = self._detect_size()
         small = cv2.resize(frame, (dw, dh), interpolation=cv2.INTER_AREA)
         self.detector.setInputSize((dw, dh))
         _, rows = self.detector.detect(small)
-        if rows is None:
-            return []
-        return [(row, small) for row in rows]
+        return small, ([] if rows is None else list(rows))
 
     def _recognize(self, face_row, small):
         """Embed one detected face and match it. Returns (Observation) or None."""
@@ -170,18 +173,12 @@ class Engine(threading.Thread):
             return Observation(best_pid, best_name, best_score, feat)
         return Observation(None, None, 0.0, feat)
 
-    def _apply_updates(self, frame, updates):
-        """Feed observations to the store; save snapshots for sessions that want one."""
-        if not updates:
-            return
-        results = []
-        for face_row, obs in updates:
-            upd = self.store.observe(obs)
-            results.append((face_row, obs, upd))
+    def _save_snaps(self, frame, results):
+        """Save snapshot files for sessions that want one."""
         wants = [r for r in results if r[2].wants_snap]
         if not wants:
             return
-        annotated = self._annotate(frame, results)
+        annotated = self._annotate(frame, results, self._scale())
         for face_row, obs, upd in wants:
             frame_name = "s%d_frame.jpg" % upd.session_id
             crop_name = "s%d_crop.jpg" % upd.session_id
@@ -192,13 +189,25 @@ class Engine(threading.Thread):
             )
             self.store.set_snaps(upd.session_id, frame_name, crop_name)
 
+    def _publish_stream(self, small, results):
+        """Encode the live annotated view for /stream (every tick)."""
+        img = self._annotate(small, results, 1.0) if results else small
+        ok, buf = cv2.imencode(".jpg", img,
+                               [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+        if ok:
+            with self._jpeg_lock:
+                self._latest_jpeg = buf.tobytes()
+
+    def get_jpeg(self):
+        with self._jpeg_lock:
+            return self._latest_jpeg
+
     def _scale(self):
         cam = self.cfg["camera"]
         return cam["width"] / float(cam["detect_width"])
 
-    def _annotate(self, frame, results):
+    def _annotate(self, frame, results, k):
         out = frame.copy()
-        k = self._scale()
         for face_row, obs, upd in results:
             x, y, w, h = (int(v * k) for v in face_row[:4])
             color = (80, 220, 80) if obs.person_id is not None else (60, 140, 255)
@@ -249,6 +258,7 @@ class Engine(threading.Thread):
         feats = []
         for i in range(req.shots):
             frame = self.picam.capture_array("main")
+            self.last_frame_at = time.time()
             feat = self._largest_face_feat(frame)
             if feat is not None:
                 feats.append(feat)
