@@ -1,0 +1,18 @@
+[Unit]
+Description=facewatch — face-based presence monitor
+After=network.target
+
+[Service]
+Type=simple
+User=enes
+Group=enes
+SupplementaryGroups=video render
+ExecStart=/opt/facewatch/venv/bin/python /opt/facewatch/app/main.py
+WorkingDirectory=/opt/facewatch/app
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

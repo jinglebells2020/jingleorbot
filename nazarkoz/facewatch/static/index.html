@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>facewatch — pinet-zero</title>
+<style>
+  :root {
+    --bg: #101418; --panel: #171d24; --edge: #232c36;
+    --text: #d7dee6; --dim: #7d8a97; --ok: #62d086; --warn: #f0a24e;
+    --unknown: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 18px; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; letter-spacing: .08em; }
+  h2 {
+    font-size: 12px; color: var(--dim); text-transform: uppercase;
+    letter-spacing: .14em; margin: 26px 0 10px;
+  }
+  #health { color: var(--dim); font-size: 12px; }
+  #health .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--warn); margin-right: 6px;
+  }
+  #health.ok .dot { background: var(--ok); }
+  .cards { display: flex; flex-wrap: wrap; gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 8px;
+    padding: 10px; width: 190px;
+  }
+  .card img { width: 100%; border-radius: 5px; display: block; background: #000; }
+  .card .who { margin-top: 8px; font-weight: 700; }
+  .card .who.unknown { color: var(--unknown); }
+  .card .meta { color: var(--dim); font-size: 12px; }
+  .empty { color: var(--dim); padding: 8px 0; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td {
+    text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--edge);
+    font-size: 13px; vertical-align: middle;
+  }
+  th { color: var(--dim); font-weight: 400; font-size: 11px;
+       text-transform: uppercase; letter-spacing: .1em; }
+  td img { height: 44px; border-radius: 4px; display: block; background: #000; }
+  td.who { font-weight: 700; }
+  td.who.unknown { color: var(--unknown); }
+  .here { color: var(--ok); }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 30px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<h1>FACEWATCH · pinet-zero</h1>
+<div id="health"><span class="dot"></span><span id="healthtext">connecting…</span></div>
+
+<h2>In view now</h2>
+<div class="cards" id="now"><div class="empty">nobody</div></div>
+
+<h2>Timeline</h2>
+<table id="timeline">
+  <thead><tr><th></th><th>who</th><th>arrived</th><th>left</th><th>dur</th><th>score</th><th>id</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<h2>People</h2>
+<table id="people">
+  <thead><tr><th>name</th><th>shots</th><th>sessions</th><th>last seen</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<div class="hint">
+  enroll: <code>facewatch enroll "Name"</code> · name a stranger:
+  <code>facewatch promote &lt;id&gt; "Name"</code> (over SSH)
+</div>
+
+<script>
+const fmtTs = ts => ts ? new Date(ts * 1000).toLocaleString([], {
+  month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit"
+}) : "–";
+const fmtDur = (a, b) => {
+  if (!a) return "–";
+  let s = Math.max(0, Math.round((b || Date.now() / 1000) - a));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m" + String(s % 60).padStart(2, "0") + "s";
+  return Math.floor(s / 3600) + "h" + String(Math.floor(s % 3600 / 60)).padStart(2, "0") + "m";
+};
+const esc = t => { const d = document.createElement("div"); d.innerText = t; return d.innerHTML; };
+
+async function tick() {
+  let state;
+  try {
+    state = await (await fetch("/api/state")).json();
+  } catch (e) {
+    document.getElementById("health").className = "";
+    document.getElementById("healthtext").innerText = "unreachable";
+    return;
+  }
+  const h = state.health;
+  const el = document.getElementById("health");
+  el.className = h.alive ? "ok" : "";
+  document.getElementById("healthtext").innerText =
+    (h.alive ? "watching" : "engine down: " + (h.error || "?")) +
+    " · faces now: " + h.faces_in_view +
+    " · tick " + h.last_tick_s + "s" +
+    " · " + h.enrolled_embeddings + " embeddings";
+
+  const now = document.getElementById("now");
+  if (!state.in_view.length) {
+    now.innerHTML = '<div class="empty">nobody</div>';
+  } else {
+    now.innerHTML = state.in_view.map(s => `
+      <div class="card">
+        ${s.crop_path ? `<img src="/snaps/${s.crop_path}?t=${Math.floor(state.now/10)}">` : ""}
+        <div class="who ${s.person_id ? "" : "unknown"}">${esc(s.label)}</div>
+        <div class="meta">since ${fmtTs(s.started_at)} · ${fmtDur(s.started_at, state.now)}
+          ${s.best_score ? "· " + s.best_score.toFixed(2) : ""}</div>
+      </div>`).join("");
+  }
+
+  document.querySelector("#timeline tbody").innerHTML = state.sessions.map(s => `
+    <tr>
+      <td>${s.crop_path ? `<img src="/snaps/${s.crop_path}">` : ""}</td>
+      <td class="who ${s.person_id ? "" : "unknown"}">${esc(s.label)}</td>
+      <td>${fmtTs(s.started_at)}</td>
+      <td>${s.ended_at ? fmtTs(s.ended_at) : '<span class="here">here</span>'}</td>
+      <td>${fmtDur(s.started_at, s.ended_at || s.last_seen_at)}</td>
+      <td>${s.best_score ? s.best_score.toFixed(2) : "–"}</td>
+      <td>${s.id}</td>
+    </tr>`).join("") || '<tr><td colspan="7" class="empty">no sessions yet</td></tr>';
+
+  document.querySelector("#people tbody").innerHTML = state.people.map(p => `
+    <tr><td class="who">${esc(p.name)}</td><td>${p.shots}</td>
+        <td>${p.session_count}</td><td>${fmtTs(p.last_seen)}</td></tr>`).join("")
+    || '<tr><td colspan="4" class="empty">nobody enrolled yet</td></tr>';
+}
+tick();
+setInterval(tick, 4000);
+</script>
+</body>
+</html>

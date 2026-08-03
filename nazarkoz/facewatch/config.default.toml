@@ -1,0 +1,23 @@
+# facewatch defaults. Override by copying values into /opt/facewatch/config.toml
+# (only the keys you change) and `sudo systemctl restart facewatch`.
+
+[camera]
+width = 1280
+height = 720
+detect_width = 640   # detection runs on a downscaled copy this wide
+fps = 5              # sensor rate; the loop samples slower than this
+hflip = false
+vflip = false
+
+[recognition]
+match_threshold = 0.363      # SFace cosine operating point (OpenCV default)
+det_score_threshold = 0.6    # YuNet confidence gate
+idle_interval_s = 1.0        # loop cadence with no faces in view
+busy_interval_s = 0.2        # loop cadence while faces are in view
+
+[sessions]
+absence_close_s = 60         # gone this long => session closed
+retention_days = 30          # snapshots pruned after this
+
+[web]
+port = 8093
