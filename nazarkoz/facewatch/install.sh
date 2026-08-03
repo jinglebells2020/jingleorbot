@@ -39,7 +39,7 @@ fetch_model face_detection_yunet   "$YUNET" 100000
 fetch_model face_recognition_sface "$SFACE" 10000000
 
 echo "-- app files"
-install -m 644 "$SRC"/{main,engine,store,web,cli}.py "$ROOT/app/"
+install -m 644 "$SRC"/{main,engine,store,web,cli,weapons}.py "$ROOT/app/"
 install -m 644 "$SRC/config.default.toml" "$ROOT/app/"
 install -m 644 "$SRC/static/index.html" "$ROOT/app/static/"
 if [ ! -f "$ROOT/config.toml" ]; then

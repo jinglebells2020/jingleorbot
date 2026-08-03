@@ -18,8 +18,10 @@ import cv2
 import numpy as np
 
 from store import Observation
+from weapons import WeaponDetector, MotionGauge
 
 JPEG_QUALITY = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+RED = (40, 40, 230)
 
 
 class EnrollRequest:
@@ -56,6 +58,11 @@ class Engine(threading.Thread):
         # Latest annotated view for the MJPEG stream:
         self._jpeg_lock = threading.Lock()
         self._latest_jpeg = None
+        # Weapons / events:
+        self.weapons = None            # set in run() if enabled + model present
+        self.motion = MotionGauge(cfg["events"])
+        self._last_weapon_check = 0.0
+        self._weapon_dets = []         # last pass results, for stream overlay
 
     # ------------------------------------------------------------- lifecycle
 
@@ -82,6 +89,15 @@ class Engine(threading.Thread):
         self.recognizer = cv2.FaceRecognizerSF.create(
             str(self.models_dir / "face_recognition_sface_2021dec.onnx"), ""
         )
+        wc = self.cfg["weapons"]
+        model = self.models_dir / wc["model"]
+        if wc["enabled"] and model.is_file():
+            self.weapons = WeaponDetector(model, wc)
+            print("engine: weapon detection on (%s @ %dpx)"
+                  % (wc["model"], wc["input_px"]), flush=True)
+        elif wc["enabled"]:
+            print("engine: weapon model %s missing — detection off" % model,
+                  flush=True)
 
     def _init_camera(self):
         from picamera2 import Picamera2  # import late: absent on dev Macs
@@ -147,6 +163,7 @@ class Engine(threading.Thread):
                         continue  # tiny faces make noise embeddings, not sessions
                     results.append((face_row, obs, self.store.observe(obs)))
                 self._save_snaps(frame, results)
+                self._watch_events(frame, small, rows)
                 self._publish_stream(small, results)
             except cv2.error as exc:
                 # One bad frame must not kill the watcher.
@@ -214,9 +231,56 @@ class Engine(threading.Thread):
             )
             self.store.set_snaps(upd.session_id, frame_name, crop_name)
 
+    def _watch_events(self, frame, small, face_rows):
+        """Motion/commotion gauge + duty-cycled weapon pass with alerting."""
+        cooldown = self.cfg["events"]["alert_cooldown_s"]
+        now = time.time()
+
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        if self.motion.update(gray) and \
+                now - self.store.last_alert_ts("commotion") > cooldown:
+            path = "a_commotion_%d.jpg" % int(now)
+            cv2.imwrite(str(self.snaps_dir / path), frame, JPEG_QUALITY)
+            self.store.add_alert("commotion",
+                                 "motion spike %.1f" % self.motion.energy,
+                                 self.motion.energy, path)
+
+        if self.weapons is None:
+            return
+        wc = self.cfg["weapons"]
+        interesting = self.motion.active or bool(face_rows)
+        if not interesting or now - self._last_weapon_check < wc["interval_s"]:
+            if not interesting:
+                self._weapon_dets = []
+            return
+        self._last_weapon_check = now
+        self._weapon_dets = self.weapons.detect(frame)
+        if self._weapon_dets and \
+                now - self.store.last_alert_ts("weapon") > cooldown:
+            best = max(self._weapon_dets, key=lambda d: d.conf)
+            path = "a_weapon_%d.jpg" % int(now)
+            annotated = self._draw_weapons(frame.copy(), self._weapon_dets, 1.0)
+            cv2.imwrite(str(self.snaps_dir / path), annotated, JPEG_QUALITY)
+            self.store.add_alert("weapon", "%s %.2f" % (best.label, best.conf),
+                                 best.conf, path)
+
+    def _draw_weapons(self, img, dets, k):
+        for d in dets:
+            x, y, w, h = (int(v * k) for v in d.box)
+            cv2.rectangle(img, (x, y), (x + w, y + h), RED, 3)
+            cv2.putText(img, "%s %.2f" % (d.label.upper(), d.conf),
+                        (x, max(20, y - 8)), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, RED, 2, cv2.LINE_AA)
+        return img
+
     def _publish_stream(self, small, results):
         """Encode the live annotated view for /stream (every tick)."""
         img = self._annotate(small, results, 1.0) if results else small
+        if self._weapon_dets:
+            if img is small:
+                img = small.copy()
+            k = 1.0 / self._scale()  # weapon boxes are in full-frame coords
+            self._draw_weapons(img, self._weapon_dets, k)
         ok, buf = cv2.imencode(".jpg", img,
                                [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         if ok:
@@ -339,4 +403,7 @@ class Engine(threading.Thread):
             "last_tick_s": round(self.last_tick_s, 3),
             "faces_in_view": self.faces_in_view,
             "enrolled_embeddings": len(self._embeddings),
+            "motion_energy": round(self.motion.energy, 1),
+            "weapons_on": self.weapons is not None,
+            "weapon_ms": round(self.weapons.last_ms) if self.weapons else None,
         }

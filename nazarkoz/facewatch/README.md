@@ -22,6 +22,18 @@ ssh enes@192.168.31.22 'sudo bash ~/facewatch/install.sh'
 - Name a logged stranger: `facewatch sessions` → `facewatch promote <id> "Danil"`
 - `facewatch status | people | sessions | forget NAME`
 
+## Weapons + events
+
+Visible-weapon detection (knife etc., YOLOv8n @320 via OpenCV DNN, ~550ms/pass,
+duty-cycled behind motion/faces) and commotion alerts (motion-energy spikes).
+Red boxes on the live stream; alerts with snapshots on the dashboard.
+
+Model file: `/opt/facewatch/models/weapon-yolov8n-320.onnx` — regenerate with
+`yolo export model=yolov8n.pt format=onnx imgsz=320 opset=12`, or drop in a
+weapons fine-tune and set `[weapons] classes` + `model_class_names` in config.
+Debug: `curl -X POST --data-binary @img.jpg localhost:8093/api/test_weapon`
+(on the Pi). It sees *visible* weapons only — RGB cannot detect concealment.
+
 ## Notes
 
 - The camera has one owner. Stop facewatch before using capture_print / the

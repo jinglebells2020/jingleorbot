@@ -115,6 +115,17 @@ def test_unknown_chain_via_rolling_embs(tmp):
     print("ok: unknown chain via rolling embeddings")
 
 
+def test_alerts(tmp):
+    st = fresh_store(tmp)
+    st.add_alert("weapon", "knife 0.62", 0.62, "a_weapon_1.jpg", now=100)
+    assert st.last_alert_ts("weapon") == 100
+    assert st.last_alert_ts("commotion") == 0.0
+    st.add_alert("commotion", "motion spike 18.2", 18.2, None, now=110)
+    kinds = [a["kind"] for a in st.recent_alerts(10)]
+    assert kinds == ["commotion", "weapon"]
+    print("ok: alerts")
+
+
 def test_forget(tmp):
     st = fresh_store(tmp)
     pid = st.add_person("y", now=0)

@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_open ON sessions(ended_at) WHERE ended_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
+CREATE TABLE IF NOT EXISTS alerts (
+    id          INTEGER PRIMARY KEY,
+    kind        TEXT NOT NULL,      -- 'weapon' | 'commotion'
+    label       TEXT NOT NULL,      -- e.g. 'knife 0.62'
+    score       REAL,
+    ts          REAL NOT NULL,
+    frame_path  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts);
 """
 
 
@@ -311,6 +320,33 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    # ---------------------------------------------------------------- alerts
+
+    def add_alert(self, kind, label, score, frame_path, now=None):
+        now = time.time() if now is None else now
+        with self.lock:
+            cur = self.conn.execute(
+                "INSERT INTO alerts(kind, label, score, ts, frame_path) "
+                "VALUES (?, ?, ?, ?, ?)", (kind, label, score, now, frame_path)
+            )
+            self.conn.commit()
+            return cur.lastrowid
+
+    def last_alert_ts(self, kind):
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT MAX(ts) AS t FROM alerts WHERE kind = ?", (kind,)
+            ).fetchone()
+        return row["t"] or 0.0
+
+    def recent_alerts(self, limit=20):
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT id, kind, label, score, ts, frame_path FROM alerts "
+                "ORDER BY ts DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def prune_snaps(self, retention_days, snaps_dir, now=None):
         """Delete snapshot files for sessions older than retention_days."""
         now = time.time() if now is None else now
@@ -335,6 +371,19 @@ class Store:
                     "UPDATE sessions SET frame_path = NULL, crop_path = NULL "
                     "WHERE id = ?", (r["id"],)
                 )
-            if rows:
+            arows = self.conn.execute(
+                "SELECT id, frame_path FROM alerts "
+                "WHERE ts < ? AND frame_path IS NOT NULL", (cutoff,)
+            ).fetchall()
+            for r in arows:
+                try:
+                    (snaps_dir / r["frame_path"]).unlink(missing_ok=True)
+                    removed += 1
+                except OSError:
+                    pass
+                self.conn.execute(
+                    "UPDATE alerts SET frame_path = NULL WHERE id = ?", (r["id"],)
+                )
+            if rows or arows:
                 self.conn.commit()
         return removed

@@ -49,11 +49,19 @@
   .here { color: var(--ok); }
   .hint { color: var(--dim); font-size: 12px; margin-top: 30px; }
   a { color: inherit; }
+  .alert { color: #ff5d5d; }
+  #alertbanner {
+    display: none; margin: 14px 0 0; padding: 10px 14px; border-radius: 8px;
+    background: #3a1518; border: 1px solid #7a2b2b; color: #ff8080;
+    font-weight: 700; letter-spacing: .06em;
+  }
+  td img.alertsnap { height: 44px; border-radius: 4px; }
 </style>
 </head>
 <body>
 <h1>FACEWATCH · pinet-zero</h1>
 <div id="health"><span class="dot"></span><span id="healthtext">connecting…</span></div>
+<div id="alertbanner"></div>
 
 <h2>Live</h2>
 <img id="live" src="/stream" alt="live view"
@@ -65,6 +73,12 @@
 <h2>Timeline</h2>
 <table id="timeline">
   <thead><tr><th></th><th>who</th><th>arrived</th><th>left</th><th>dur</th><th>score</th><th>id</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<h2>Alerts</h2>
+<table id="alerts">
+  <thead><tr><th></th><th>kind</th><th>what</th><th>when</th></tr></thead>
   <tbody></tbody>
 </table>
 
@@ -133,6 +147,23 @@ async function tick() {
       <td>${s.best_score ? s.best_score.toFixed(2) : "–"}</td>
       <td>${s.id}</td>
     </tr>`).join("") || '<tr><td colspan="7" class="empty">no sessions yet</td></tr>';
+
+  const banner = document.getElementById("alertbanner");
+  const recent = state.alerts.find(a => state.now - a.ts < 60);
+  if (recent) {
+    banner.style.display = "block";
+    banner.innerText = "⚠ " + recent.kind.toUpperCase() + ": " + recent.label +
+                       " · " + fmtTs(recent.ts);
+  } else {
+    banner.style.display = "none";
+  }
+  document.querySelector("#alerts tbody").innerHTML = state.alerts.map(a => `
+    <tr>
+      <td>${a.frame_path ? `<img class="alertsnap" src="/snaps/${a.frame_path}">` : ""}</td>
+      <td class="alert">${esc(a.kind)}</td>
+      <td>${esc(a.label)}</td>
+      <td>${fmtTs(a.ts)}</td>
+    </tr>`).join("") || '<tr><td colspan="4" class="empty">none</td></tr>';
 
   document.querySelector("#people tbody").innerHTML = state.people.map(p => `
     <tr><td class="who">${esc(p.name)}</td><td>${p.shots}</td>

@@ -76,6 +76,25 @@ face crop; refreshed when a better-scoring view arrives.
 - RAM: `cv2.setNumThreads(3)`, single camera stream, no Flask; expect ~200MB RSS.
 - No faces / detector returns None → normal idle path.
 
+## Weapons + events layer (added same day)
+
+- **Visible-weapon detection**, purely on-Pi: YOLOv8n ONNX at 320px through the
+  same OpenCV DNN runtime (no second ML runtime). Baseline model is
+  COCO-pretrained (knife/scissors/baseball-bat classes); a weapons fine-tune can
+  replace `models/weapon-yolov8n-320.onnx` + `[weapons] classes` with no code
+  change. ~550ms/pass on the Zero 2 W; duty-cycled — runs only when the scene is
+  interesting (motion or faces) and at most every `interval_s` (2s).
+- **Commotion detection**: frame-differencing motion energy on the small view;
+  sustained spikes over `commotion_threshold` for `commotion_ticks` ticks raise
+  an alert. Deliberately not pose-based — the honest fit for this hardware.
+- **Alerts**: own table (kind/label/score/ts/frame), per-kind cooldown (30s),
+  annotated full-frame snapshot, red boxes on the live stream, red banner +
+  alerts table on the dashboard. Debug endpoint `POST /api/test_weapon`
+  (localhost) runs the detector on a posted image.
+- Scope honesty: this detects *visible* weapons and *visible* commotion as an
+  alert-a-human layer. It cannot see concealed objects (physics: RGB) and does
+  not claim to infer intent.
+
 ## Testing
 
 - `test_store.py`: session state machine with synthetic embeddings (runs on Mac).

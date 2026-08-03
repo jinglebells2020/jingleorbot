@@ -68,6 +68,7 @@ def make_server(cfg, store, engine, static_dir, snaps_dir):
                 "in_view": store.open_sessions(),
                 "sessions": store.recent_sessions(60),
                 "people": store.people_summary(),
+                "alerts": store.recent_alerts(20),
             }
 
         def _stream(self):
@@ -137,6 +138,23 @@ def make_server(cfg, store, engine, static_dir, snaps_dir):
                                      "detail": "promoted to person %d" % pid})
                 except (KeyError, ValueError, json.JSONDecodeError) as exc:
                     self._send(422, {"ok": False, "detail": str(exc)})
+            elif url.path == "/api/test_weapon":
+                # Debug: run the weapon detector on a posted image.
+                if engine.weapons is None:
+                    self._send(422, {"ok": False, "detail": "weapons disabled"})
+                    return
+                import cv2
+                import numpy as np
+                data = np.frombuffer(self._read_body(), dtype=np.uint8)
+                img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+                if img is None:
+                    self._send(400, {"ok": False, "detail": "bad image"})
+                    return
+                dets = engine.weapons.detect(img)
+                self._send(200, {"ok": True, "ms": engine.weapons.last_ms,
+                                 "detections": [
+                                     {"label": d.label, "conf": round(d.conf, 3),
+                                      "box": d.box} for d in dets]})
             elif url.path == "/api/forget":
                 try:
                     payload = json.loads(self._read_body() or b"{}")

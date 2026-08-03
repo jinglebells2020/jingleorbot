@@ -24,5 +24,18 @@ watchdog_stall_s = 25        # no camera frame this long => restart service
 absence_close_s = 60         # gone this long => session closed
 retention_days = 30          # snapshots pruned after this
 
+[weapons]
+enabled = true
+model = "weapon-yolov8n-320.onnx"   # in /opt/facewatch/models/
+input_px = 320
+conf = 0.30   # COCO-nano knife confidence runs low; fine-tuned model can raise this
+interval_s = 2.0        # min seconds between YOLO passes (they cost ~1s CPU)
+classes = ["knife", "scissors", "baseball bat"]  # COCO names to alert on
+
+[events]
+commotion_threshold = 12.0   # mean |frame diff| on the small view, 0-255
+commotion_ticks = 2          # sustained this many ticks => commotion alert
+alert_cooldown_s = 30        # per alert kind
+
 [web]
 port = 8093
