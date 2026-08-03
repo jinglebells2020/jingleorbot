@@ -8,6 +8,7 @@ detect_width = 640   # detection runs on a downscaled copy this wide
 fps = 5              # sensor rate; the loop samples slower than this
 hflip = false
 vflip = false
+autofocus = true     # Camera Module 3 continuous AF
 
 [recognition]
 match_threshold = 0.363      # SFace cosine operating point (OpenCV default)

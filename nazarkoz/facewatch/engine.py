@@ -101,6 +101,16 @@ class Engine(threading.Thread):
         )
         self.picam.configure(config)
         self.picam.start()
+        if cam.get("autofocus", True):
+            try:
+                from libcamera import controls as lc
+                self.picam.set_controls({
+                    "AfMode": lc.AfModeEnum.Continuous,
+                    "AfSpeed": lc.AfSpeedEnum.Normal,
+                })
+                print("engine: continuous autofocus on", flush=True)
+            except Exception as exc:  # camera without AF motor
+                print("engine: autofocus unavailable (%s)" % exc, flush=True)
         time.sleep(1.0)  # AE/AWB settle
 
     def _detect_size(self):
@@ -124,15 +134,20 @@ class Engine(threading.Thread):
                 self.reload_embeddings_flag.clear()
                 self._embeddings = self.store.load_embeddings()
 
-            small, rows = self._detect(frame)
-            self.faces_in_view = len(rows)
-            results = []
-            for face_row in rows:
-                obs = self._recognize(face_row, small)
-                if obs is not None:
-                    results.append((face_row, obs, self.store.observe(obs)))
-            self._save_snaps(frame, results)
-            self._publish_stream(small, results)
+            try:
+                small, rows = self._detect(frame)
+                self.faces_in_view = len(rows)
+                results = []
+                for face_row in rows:
+                    obs = self._recognize(face_row, small)
+                    if obs is not None:
+                        results.append((face_row, obs, self.store.observe(obs)))
+                self._save_snaps(frame, results)
+                self._publish_stream(small, results)
+            except cv2.error as exc:
+                # One bad frame must not kill the watcher.
+                print("engine: skipped frame (%s)" % str(exc).splitlines()[-1],
+                      flush=True)
             self.store.sweep()
 
             now = time.time()
@@ -208,8 +223,13 @@ class Engine(threading.Thread):
 
     def _annotate(self, frame, results, k):
         out = frame.copy()
+        H, W = out.shape[:2]
         for face_row, obs, upd in results:
+            # YuNet can emit garbage coords on bad frames (AF hunting, motion
+            # blur); unclamped they overflow OpenCV's int32 Point and throw.
             x, y, w, h = (int(v * k) for v in face_row[:4])
+            x = max(0, min(x, W - 2)); y = max(0, min(y, H - 2))
+            w = max(1, min(w, W - x - 1)); h = max(1, min(h, H - y - 1))
             color = (80, 220, 80) if obs.person_id is not None else (60, 140, 255)
             cv2.rectangle(out, (x, y), (x + w, y + h), color, 2)
             text = upd.label if obs.person_id is None else \
