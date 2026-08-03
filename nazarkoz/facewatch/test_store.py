@@ -94,6 +94,27 @@ def test_restart_closes_stale(tmp):
     print("ok: restart closes stale sessions")
 
 
+def test_unknown_chain_via_rolling_embs(tmp):
+    """A drifting stranger stays one session: frame N matches frame N-1
+    even when it no longer matches the session's first embedding."""
+    st = Store(str(Path(tmp) / "t.db"), unknown_match_threshold=0.28)
+    e1 = vec(1)
+    u = vec(2) - np.dot(vec(2), e1) * e1          # orthonormal helpers
+    u /= np.linalg.norm(u)
+    w = vec(3) - np.dot(vec(3), e1) * e1 - np.dot(vec(3), u) * u
+    w /= np.linalg.norm(w)
+    e2 = 0.30 * e1 + np.sqrt(1 - 0.30**2) * u     # cos(e1,e2)=0.30
+    e3 = 0.90 * e2 + np.sqrt(1 - 0.90**2) * w     # cos(e2,e3)=0.90, cos(e1,e3)=0.27
+
+    u1 = st.observe(Observation(None, None, 0.0, e1), now=10)
+    u2 = st.observe(Observation(None, None, 0.0, e2), now=11)
+    assert u2.session_id == u1.session_id          # 0.30 >= 0.28: chains
+    assert cosine(e1, e3) < 0.28                   # would fragment on first-emb
+    u3 = st.observe(Observation(None, None, 0.0, e3), now=12)
+    assert u3.session_id == u1.session_id          # rolling emb e2 catches it
+    print("ok: unknown chain via rolling embeddings")
+
+
 def test_forget(tmp):
     st = fresh_store(tmp)
     pid = st.add_person("y", now=0)

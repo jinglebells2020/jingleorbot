@@ -10,8 +10,11 @@ floats throughout.
 import sqlite3
 import threading
 import time
+from collections import deque
 
 import numpy as np
+
+ROLLING_EMBS = 5  # embeddings kept per open unknown session for chain matching
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people (
@@ -192,21 +195,25 @@ class Store:
         self.conn.commit()
         self._open[sid] = {
             "person_id": obs.person_id, "label": obs.name,
-            "last_seen": now, "best_score": obs.score, "emb": None,
+            "last_seen": now, "best_score": obs.score, "embs": None,
         }
         return SessionUpdate(sid, obs.name, True, True)
 
     def _observe_unknown(self, obs, now):
+        # Presence is a chain: this frame resembles the previous frames of a
+        # lingering stranger far more than their first glimpse. Match against
+        # a rolling set of each open unknown session's recent embeddings.
         best_sid, best_cos = None, self.unknown_match_threshold
         for sid, s in self._open.items():
-            if s["person_id"] is not None or s["emb"] is None:
+            if s["person_id"] is not None or not s["embs"]:
                 continue
-            c = cosine(obs.emb, s["emb"])
+            c = max(cosine(obs.emb, e) for e in s["embs"])
             if c >= best_cos:
                 best_sid, best_cos = sid, c
         if best_sid is not None:
             s = self._open[best_sid]
             s["last_seen"] = now
+            s["embs"].append(obs.emb)
             self.conn.execute(
                 "UPDATE sessions SET last_seen_at = ? WHERE id = ?", (now, best_sid)
             )
@@ -222,8 +229,8 @@ class Store:
         self.conn.execute("UPDATE sessions SET label = ? WHERE id = ?", (label, sid))
         self.conn.commit()
         self._open[sid] = {
-            "person_id": None, "label": label,
-            "last_seen": now, "best_score": 0.0, "emb": obs.emb,
+            "person_id": None, "label": label, "last_seen": now,
+            "best_score": 0.0, "embs": deque([obs.emb], maxlen=ROLLING_EMBS),
         }
         return SessionUpdate(sid, label, True, True)
 
@@ -267,7 +274,12 @@ class Store:
             if row["emb"] is None:
                 raise ValueError("session %s has no stored embedding" % session_id)
             pid = self.add_person(name, now)
-            self.add_embedding(pid, blob_to_vec(row["emb"]), "promote:s%d" % session_id, now)
+            # An open session carries recent embeddings too — enroll them all.
+            live = self._open.get(session_id)
+            embs = list(live["embs"]) if live and live["embs"] else \
+                [blob_to_vec(row["emb"])]
+            for i, e in enumerate(embs):
+                self.add_embedding(pid, e, "promote:s%d:%d" % (session_id, i), now)
             self.conn.execute(
                 "UPDATE sessions SET person_id = ?, label = ? WHERE id = ?",
                 (pid, name, session_id),

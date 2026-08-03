@@ -49,7 +49,7 @@ def main():
 
     store = Store(
         str(data_dir / "facewatch.db"),
-        unknown_match_threshold=cfg["recognition"]["match_threshold"],
+        unknown_match_threshold=cfg["recognition"]["unknown_match_threshold"],
         absence_close_s=cfg["sessions"]["absence_close_s"],
     )
     engine = Engine(store, cfg, args.root / "models", snaps_dir)

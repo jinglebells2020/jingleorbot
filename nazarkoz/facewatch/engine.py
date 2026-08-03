@@ -138,10 +138,14 @@ class Engine(threading.Thread):
                 small, rows = self._detect(frame)
                 self.faces_in_view = len(rows)
                 results = []
+                min_px = rc["min_face_px"]
                 for face_row in rows:
-                    obs = self._recognize(face_row, small)
-                    if obs is not None:
-                        results.append((face_row, obs, self.store.observe(obs)))
+                    obs = self._recognize(face_row, frame)
+                    if obs is None:
+                        continue
+                    if obs.person_id is None and face_row[2] < min_px:
+                        continue  # tiny faces make noise embeddings, not sessions
+                    results.append((face_row, obs, self.store.observe(obs)))
                 self._save_snaps(frame, results)
                 self._publish_stream(small, results)
             except cv2.error as exc:
@@ -171,10 +175,16 @@ class Engine(threading.Thread):
         _, rows = self.detector.detect(small)
         return small, ([] if rows is None else list(rows))
 
-    def _recognize(self, face_row, small):
-        """Embed one detected face and match it. Returns (Observation) or None."""
+    def _recognize(self, face_row, frame):
+        """Embed one detected face and match it. Returns (Observation) or None.
+
+        Detection ran on the downscaled image, but alignment/embedding use the
+        full-resolution frame — 2x the face pixels makes far better embeddings.
+        """
         try:
-            aligned = self.recognizer.alignCrop(small, face_row)
+            row = face_row.copy()
+            row[:14] *= self._scale()  # x,y,w,h + 5 landmark pairs
+            aligned = self.recognizer.alignCrop(frame, row)
             feat = self.recognizer.feature(aligned).flatten()
         except cv2.error:
             return None
@@ -270,8 +280,9 @@ class Engine(threading.Thread):
         _, rows = self.detector.detect(small)
         if rows is None or not len(rows):
             return None
-        row = max(rows, key=lambda r: r[2] * r[3])
-        aligned = self.recognizer.alignCrop(small, row)
+        row = max(rows, key=lambda r: r[2] * r[3]).copy()
+        row[:14] *= image.shape[1] / float(dw)  # back to full-res coords
+        aligned = self.recognizer.alignCrop(image, row)
         return self.recognizer.feature(aligned).flatten()
 
     def _enroll_camera(self, req):

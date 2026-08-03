@@ -11,8 +11,11 @@ vflip = false
 autofocus = true     # Camera Module 3 continuous AF
 
 [recognition]
-match_threshold = 0.363      # SFace cosine operating point (OpenCV default)
-det_score_threshold = 0.6    # YuNet confidence gate
+match_threshold = 0.363          # SFace cosine operating point (OpenCV default)
+unknown_match_threshold = 0.28   # looser: chains unknown sightings into sessions
+min_face_px = 48                 # unknown faces narrower than this (in the
+                                 # detect image) are ignored — too far to embed
+det_score_threshold = 0.6        # YuNet confidence gate
 idle_interval_s = 1.0        # loop cadence with no faces in view
 busy_interval_s = 0.2        # loop cadence while faces are in view
 watchdog_stall_s = 25        # no camera frame this long => restart service
