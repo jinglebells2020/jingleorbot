@@ -1,0 +1,26 @@
+[Unit]
+Description=cardcam - PiSugar button shutter
+After=multi-user.target
+
+[Service]
+Type=simple
+User=enes
+Group=enes
+SupplementaryGroups=gpio spi i2c video
+RuntimeDirectory=cardcam
+RuntimeDirectoryMode=0755
+# lgpio drops a notify pipe (.lgd-nfy0) in the working directory. systemd would
+# otherwise start us in /, which isn't writable, and gpiozero then falls back to
+# the sysfs pin factory that no longer works on Trixie.
+WorkingDirectory=/run/cardcam
+# Pin the factory so a future failure is loud instead of a silent fallback.
+Environment=GPIOZERO_PIN_FACTORY=lgpio
+Environment=LG_WD=/run/cardcam
+ExecStart=/usr/bin/python3 /home/enes/cardcam/cardcam.py
+Restart=on-failure
+RestartSec=5
+# The e-Paper needs a moment to finish its refresh before the process dies.
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

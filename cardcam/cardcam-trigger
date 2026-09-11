@@ -1,0 +1,6 @@
+#!/bin/sh
+# Fire the shutter. This is what PiSugar's tap hook calls.
+#
+# Writing to a FIFO blocks until a reader opens it, so if cardcam.service is
+# down this would hang the PiSugar daemon forever. The timeout caps that.
+exec timeout 2 sh -c 'printf x > /run/cardcam/trigger'
