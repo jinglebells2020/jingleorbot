@@ -216,16 +216,31 @@ def main() -> int:
     conn_path = BUILD_DIR / "aura_connectivity.md"
     write_connectivity_doc(conn_path)
 
+    # 6. Generate KiCad schematic file (.kicad_sch) — fast grid layout via
+    # custom emitter (SKiDL's force-directed default times out on this design).
+    from src.gen_schematic import write_kicad_sch, write_lib_tables
+    sch_path = BUILD_DIR / "aura.kicad_sch"
+    try:
+        write_kicad_sch(sch_path)
+        write_lib_tables(BUILD_DIR)
+    except Exception as e:
+        print(f"  schematic gen FAILED: {type(e).__name__}: {e}")
+        sch_path = None
+
     # Summary
     parts = list(default_circuit.parts)
     nets_used = [n for n in default_circuit.nets if n.pins]
     print(f"AURA build complete:")
     print(f"  parts:    {len(parts)}")
     print(f"  nets:     {len(nets_used)}")
-    print(f"  netlist:  {netlist_path.relative_to(ROOT)}")
-    print(f"  BOM:      {bom_path.relative_to(ROOT)}")
-    print(f"  conn doc: {conn_path.relative_to(ROOT)}")
-    print(f"  ERC log:  {erc_log.relative_to(ROOT)}")
+    print(f"  netlist:    {netlist_path.relative_to(ROOT)}")
+    print(f"  BOM:        {bom_path.relative_to(ROOT)}")
+    print(f"  conn doc:   {conn_path.relative_to(ROOT)}")
+    print(f"  ERC log:    {erc_log.relative_to(ROOT)}")
+    if sch_path and sch_path.exists():
+        print(f"  schematic:  {sch_path.relative_to(ROOT)}")
+    else:
+        print(f"  schematic:  NOT GENERATED (see error above)")
     return 0
 
 
