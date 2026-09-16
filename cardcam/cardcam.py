@@ -201,8 +201,6 @@ def main():
     ensure_fifo(TRIGGER)
 
     display = Display()
-    log.info("starting camera")
-    camera = Camera()
 
     running = True
 
@@ -213,6 +211,30 @@ def main():
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
+
+    # Wait for the camera rather than dying. A loose CSI ribbon used to crash
+    # the service on start, and systemd's restart loop then chewed through CPU
+    # every five seconds. Now the panel says what is wrong and the daemon picks
+    # the camera up by itself once the cable is reseated.
+    camera = None
+    warned = False
+    while running and camera is None:
+        try:
+            log.info("opening camera")
+            camera = Camera()
+        except Exception as e:
+            log.warning("camera unavailable: %s", e)
+            if not warned:
+                display.message("NO CAMERA", "check the CSI ribbon", "retrying every 10s")
+                warned = True
+            for _ in range(20):
+                if not running:
+                    break
+                time.sleep(0.5)
+    if camera is None:
+        display.close()
+        log.info("stopped before the camera appeared")
+        return
 
     count = len(list(PHOTO_DIR.glob("*.jpg")))
     battery = pisugar_battery()
