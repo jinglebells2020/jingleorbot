@@ -1,0 +1,16 @@
+[Unit]
+Description=cardcam web shutter
+After=network-online.target cardcam.service
+Wants=cardcam.service
+
+[Service]
+Type=simple
+User=enes
+Group=enes
+WorkingDirectory=/home/enes/cardcam
+ExecStart=/usr/bin/python3 /home/enes/cardcam/cardcam-web.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
