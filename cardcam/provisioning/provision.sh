@@ -47,6 +47,16 @@ for f in __init__.py epdconfig.py epd2in13_V4.py epd2in13_V3.py epd2in13_V2.py; 
 done
 echo "   $(ls "$D" | wc -l) driver files"
 
+say "mask the first-run user wizard"
+# userconfig.service runs an interactive 'create a user' dialog on tty1 when the
+# image made no user. It sits in 'activating' forever waiting for a console that
+# nobody is at, and it blocks multi-user.target - so every WantedBy=multi-user
+# service, cardcam included, is queued and never starts. We already have a user.
+if getent passwd "$USER" >/dev/null; then
+  sudo systemctl mask --now userconfig.service 2>/dev/null || true
+  echo "   masked (user $USER already exists)"
+fi
+
 say "cardcam service"
 sudo install -m 644 "$HOME/cardcam/cardcam.service" /etc/systemd/system/cardcam.service
 sudo systemctl daemon-reload
