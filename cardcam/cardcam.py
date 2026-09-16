@@ -134,6 +134,13 @@ PANEL_IDLE_SLEEP_S   = float(os.environ.get("CARDCAM_PANEL_IDLE", "60"))
 # CARDCAM_BUTTON_GPIO=0 to disable. Harmless when nothing is wired up.
 BUTTON_GPIO = int(os.environ.get("CARDCAM_BUTTON_GPIO", "26"))
 
+# Shoot once on startup. The PiSugar's button can't be read over I2C, but it
+# does cut and restore power in hardware - so a press power-cycles the Pi, and
+# boot itself becomes the shutter. Slow, but it makes the physical button work.
+# The extra settle gives autofocus and auto-exposure time after a cold start.
+SHOOT_ON_BOOT   = os.environ.get("CARDCAM_SHOOT_ON_BOOT", "1") not in ("0", "", "no")
+BOOT_SETTLE_S   = float(os.environ.get("CARDCAM_BOOT_SETTLE", "1.5"))
+
 
 class Display:
     def __init__(self):
@@ -275,13 +282,49 @@ def main():
         return
 
     count = len(list(PHOTO_DIR.glob("*.jpg")))
-    battery = pisugar_battery()
-    display.message(
-        "CARDCAM",
-        "ready - tap to shoot",
-        f"{count} photo{'s' if count != 1 else ''} on card"
-        + (f"   {battery:.0f}%" if battery is not None else ""),
-    )
+
+    def shoot(why="trigger"):
+        """Capture, save, and put it on the panel. Returns True on success."""
+        nonlocal count
+        stamp = datetime.now()
+        path = PHOTO_DIR / f"{stamp:%Y%m%d-%H%M%S}.jpg"
+        try:
+            t0 = time.monotonic()
+            camera.capture(path)
+            shot = time.monotonic() - t0
+
+            frame = preview(path)
+            label = f"{stamp:%H:%M:%S}"
+            battery = pisugar_battery()
+            if battery is not None:
+                label += f"   {battery:.0f}%"
+            draw, mode = display.show(caption(frame, label))
+
+            count += 1
+            log.info("%s  (%s: capture %.2fs, panel %.2fs %s, total %.2fs)",
+                     path.name, why, shot, draw, mode, time.monotonic() - t0)
+            return True
+        except Exception:
+            log.exception("capture failed")
+            try:
+                display.message("CARDCAM", "capture failed", "see journalctl")
+            except Exception:
+                pass
+            return False
+
+    if SHOOT_ON_BOOT:
+        # Let AE/AWB and autofocus settle past the cold start before firing.
+        time.sleep(BOOT_SETTLE_S)
+        log.info("shooting on boot")
+        shoot("boot")
+    else:
+        battery = pisugar_battery()
+        display.message(
+            "CARDCAM",
+            "ready - tap to shoot",
+            f"{count} photo{'s' if count != 1 else ''} on card"
+            + (f"   {battery:.0f}%" if battery is not None else ""),
+        )
     log.info("ready, waiting on %s", TRIGGER)
 
     # A plain open() on a FIFO blocks until a writer appears, which would make
@@ -329,29 +372,7 @@ def main():
                 continue
             last = now
 
-            stamp = datetime.now()
-            path = PHOTO_DIR / f"{stamp:%Y%m%d-%H%M%S}.jpg"
-            try:
-                t0 = time.monotonic()
-                camera.capture(path)
-                shot = time.monotonic() - t0
-
-                frame = preview(path)
-                label = f"{stamp:%H:%M:%S}"
-                battery = pisugar_battery()
-                if battery is not None:
-                    label += f"   {battery:.0f}%"
-                draw, mode = display.show(caption(frame, label))
-
-                count += 1
-                log.info("%s  (capture %.2fs, panel %.2fs %s, total %.2fs)",
-                         path.name, shot, draw, mode, time.monotonic() - t0)
-            except Exception:
-                log.exception("capture failed")
-                try:
-                    display.message("CARDCAM", "capture failed", "see journalctl")
-                except Exception:
-                    pass
+            shoot()
     finally:
         if button is not None:
             try:
