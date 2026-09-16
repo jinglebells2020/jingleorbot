@@ -1,0 +1,31 @@
+# Raspberry Pi OS first-boot configuration.
+# Goes on the FAT boot partition; raspberrypi-sys-mods applies it once, then
+# renames it. This replaces the old systemd.run=firstrun.sh trick entirely.
+config_version = 1
+
+[system]
+hostname = "pinet-zero"
+
+[user]
+name = "enes"
+password = "$6$sua4vtseYfBzSKOV$.Rp.MPzEOijFCxi2jW5.tIWfngaF9Lf5/MWws70r/ZJUuYgJhbhhiC4Vrv4uQms6uzWZOlSlFaZi1BWu4DlTB1"
+password_encrypted = true
+
+[ssh]
+enabled = true
+password_authentication = true
+authorized_keys = [
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIzYji3T1myFLVKmu0T6s8mneDjSkJd4K3qrJSNdKCLf enes-pi",
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH9qJxG4FrWHiYCI0w5gM/TWwi37u/wMSA86WU957Ju2 enes-mac",
+]
+
+[wlan]
+ssid = "SpectrumSetup-D7_EXT"
+password = "uniteerrand912"
+password_encrypted = false
+hidden = false
+country = "US"
+
+[locale]
+keymap = "us"
+timezone = "America/New_York"
