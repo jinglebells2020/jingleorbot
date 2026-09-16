@@ -119,19 +119,56 @@ def caption(img, text):
     return img
 
 
+# Measured on the 2.13" V4, per shot:
+#   init_fast 0.08s | display_fast 1.76s | sleep 2.00s | displayPartial 0.61s
+# Calling sleep() after every shot cost two seconds doing nothing useful, and
+# the full waveform cost another second over a partial. So: keep the panel
+# awake between shots, draw partials, and only sleep once the camera has been
+# idle a while. Partial refreshes ghost, badly with dithered photos, so spend
+# one base image every few shots to wipe it.
+PARTIALS_BEFORE_BASE = int(os.environ.get("CARDCAM_PARTIALS", "5"))
+PANEL_IDLE_SLEEP_S   = float(os.environ.get("CARDCAM_PANEL_IDLE", "60"))
+
+# A physical shutter button on a spare GPIO, wired to ground. Pin 37 with the
+# ground on pin 39 sits well away from the display and the I2C bus. Set
+# CARDCAM_BUTTON_GPIO=0 to disable. Harmless when nothing is wired up.
+BUTTON_GPIO = int(os.environ.get("CARDCAM_BUTTON_GPIO", "26"))
+
+
 class Display:
     def __init__(self):
         self.epd = epd2in13_V4.EPD()
+        self.awake = False
+        self.partials = 0
+        self.last_use = 0.0
 
-    def _wake(self):
-        # V4 has a fast init that skips part of the LUT load.
-        init = getattr(self.epd, "init_fast", None) or self.epd.init
-        init()
+    def show(self, img, force_base=False):
+        """Draw; return (seconds, mode)."""
+        t0 = time.monotonic()
+        buf = self.epd.getbuffer(img)
+        if force_base or not self.awake or self.partials >= PARTIALS_BEFORE_BASE:
+            self.epd.init()
+            self.epd.displayPartBaseImage(buf)
+            self.awake = True
+            self.partials = 0
+            mode = "base"
+        else:
+            self.epd.displayPartial(buf)
+            self.partials += 1
+            mode = "partial"
+        self.last_use = time.monotonic()
+        return time.monotonic() - t0, mode
 
-    def show(self, img):
-        self._wake()
-        self.epd.display(self.epd.getbuffer(img))
-        self.epd.sleep()
+    def idle_sleep(self):
+        """Deep-sleep the panel once nothing has happened for a while."""
+        if self.awake and self.last_use and \
+           time.monotonic() - self.last_use > PANEL_IDLE_SLEEP_S:
+            self.epd.sleep()
+            self.awake = False
+            self.partials = 0
+            log.info("panel asleep")
+            return True
+        return False
 
     def message(self, title, *lines):
         img = Image.new("1", (PANEL_W, PANEL_H), 255)
@@ -141,11 +178,12 @@ class Display:
         body = load_font("DejaVuSans.ttf", 13)
         for i, line in enumerate(lines):
             d.text((12, 48 + i * 18), line, font=body, fill=0)
-        self.show(img)
+        self.show(img, force_base=True)
 
     def close(self):
         try:
-            self.epd.sleep()
+            if self.awake:
+                self.epd.sleep()
         except Exception:
             pass
 
@@ -254,6 +292,18 @@ def main():
     rfd = os.open(TRIGGER, os.O_RDONLY | os.O_NONBLOCK)
     wfd = os.open(TRIGGER, os.O_WRONLY)
 
+    # The button just writes to our own write-end, so it goes through exactly
+    # the same path as the FIFO trigger - one code path, not two.
+    button = None
+    if BUTTON_GPIO:
+        try:
+            from gpiozero import Button
+            button = Button(BUTTON_GPIO, pull_up=True, bounce_time=0.08)
+            button.when_pressed = lambda: os.write(wfd, b"b")
+            log.info("shutter button on GPIO%d (wire it to ground)", BUTTON_GPIO)
+        except Exception as e:
+            log.warning("no GPIO button: %s", e)
+
     last = 0.0
     try:
         while running:
@@ -262,6 +312,7 @@ def main():
             except OSError:
                 continue
             if not ready:
+                display.idle_sleep()
                 continue
             try:
                 if not os.read(rfd, 4096):
@@ -290,11 +341,11 @@ def main():
                 battery = pisugar_battery()
                 if battery is not None:
                     label += f"   {battery:.0f}%"
-                display.show(caption(frame, label))
+                draw, mode = display.show(caption(frame, label))
 
                 count += 1
-                log.info("%s  (capture %.1fs, total %.1fs)",
-                         path.name, shot, time.monotonic() - t0)
+                log.info("%s  (capture %.2fs, panel %.2fs %s, total %.2fs)",
+                         path.name, shot, draw, mode, time.monotonic() - t0)
             except Exception:
                 log.exception("capture failed")
                 try:
@@ -302,6 +353,11 @@ def main():
                 except Exception:
                     pass
     finally:
+        if button is not None:
+            try:
+                button.close()
+            except Exception:
+                pass
         for fd in (rfd, wfd):
             try:
                 os.close(fd)
